@@ -1,0 +1,72 @@
+{
+  "name": "pi-unreal-blueprint",
+  "version": "0.1.0",
+  "description": "Production-grade Blueprint automation for Unreal Engine 4.27 and Pi",
+  "type": "module",
+  "license": "MIT",
+  "author": "Aaalice233",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aaalice233/pi-unreal-blueprint.git"
+  },
+  "homepage": "https://github.com/Aaalice233/pi-unreal-blueprint#readme",
+  "bugs": {
+    "url": "https://github.com/Aaalice233/pi-unreal-blueprint/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "pi-unreal-blueprint": "./src/cli/dist/src/cli/index.js"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "src/client",
+    "src/cli/dist",
+    "src/shared",
+    "unreal/PiUnrealBlueprint/Config",
+    "unreal/PiUnrealBlueprint/Source",
+    "unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin",
+    "unreal/PiUnrealBlueprint/README.md",
+    "scripts",
+    "README.md",
+    "README.zh-CN.md",
+    "PLAN.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "unreal-engine",
+    "blueprint",
+    "ue4"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run check"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@types/node": "^22.19.19",
+    "typebox": "^1.3.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

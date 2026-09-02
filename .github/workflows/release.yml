@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer to validate and release (without v)
+        required: true
+        type: string
+      dry_run:
+        description: Build and verify without publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize trusted release ref
+    runs-on: ubuntu-latest
+    outputs:
+      trusted: ${{ steps.gate.outputs.trusted }}
+      version: ${{ steps.gate.outputs.version }}
+      dry_run: ${{ steps.gate.outputs.dry_run }}
+    steps:
+      - id: gate
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REPOSITORY}" == "Aaalice233/pi-unreal-blueprint" ]] || {
+            echo "Releases run only in the canonical repository." >&2
+            exit 1
+          }
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+            dry_run=false
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            version="${INPUT_VERSION}"
+            dry_run="${INPUT_DRY_RUN:-true}"
+          else
+            echo "Manual releases must run from main; automatic releases require a v* tag." >&2
+            exit 1
+          fi
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid SemVer: ${version}" >&2
+            exit 1
+          }
+          echo "trusted=true" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "dry_run=${dry_run}" >> "${GITHUB_OUTPUT}"
+
+  build-and-release:
+    name: Build, verify, and publish
+    needs: authorize
+    if: needs.authorize.outputs.trusted == 'true'
+    environment: release
+    runs-on: [self-hosted, Windows, X64, trusted, ue4.27]
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
+      DRY_RUN: ${{ needs.authorize.outputs.dry_run }}
+      UE_4_27_ROOT: ${{ vars.UE_4_27_ROOT }}
+      PI_UNREAL_UPROJECT: ${{ vars.PI_UNREAL_UPROJECT }}
+    steps:
+      - name: Checkout trusted release commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: false
+
+      - name: Block incomplete release implementations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = @(
+            'package.json',
+            'scripts/dev.ps1',
+            'unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin'
+          )
+          $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if ($missing.Count -gt 0) {
+            throw "Release is intentionally blocked until implementation exists: $($missing -join ', ')"
+          }
+          $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
+          $plugin = Get-Content -LiteralPath 'unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin' -Raw | ConvertFrom-Json
+          if ($package.version -ne $env:RELEASE_VERSION) {
+            throw "package.json version $($package.version) does not match $env:RELEASE_VERSION"
+          }
+          if ($plugin.VersionName -ne $env:RELEASE_VERSION) {
+            throw "Plugin VersionName $($plugin.VersionName) does not match $env:RELEASE_VERSION"
+          }
+          if (-not $env:UE_4_27_ROOT) { throw 'UE_4_27_ROOT repository variable is required.' }
+          if (-not $env:PI_UNREAL_UPROJECT) { $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject' }
+          if (-not (Test-Path -LiteralPath $env:PI_UNREAL_UPROJECT)) {
+            throw "Configured test project does not exist: $env:PI_UNREAL_UPROJECT"
+          }
+
+      - name: Install and run complete checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:PI_UNREAL_UPROJECT) { $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject' }
+          npm ci
+          npm run release:verify -- --version $env:RELEASE_VERSION
+          ./scripts/dev.ps1 check
+
+      - name: Build UE4.27 Win64 plugin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runUat = Join-Path $env:UE_4_27_ROOT 'Engine/Build/BatchFiles/RunUAT.bat'
+          if (-not (Test-Path -LiteralPath $runUat)) { throw "RunUAT not found: $runUat" }
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          & $runUat BuildPlugin `
+            -Plugin="$((Resolve-Path 'unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin').Path)" `
+            -Package="$((Resolve-Path 'artifacts').Path)/PiUnrealBlueprint-UE4.27-Win64" `
+            -TargetPlatforms=Win64 `
+            -Rocket
+          if ($LASTEXITCODE -ne 0) { throw "RunUAT BuildPlugin failed with exit code $LASTEXITCODE" }
+          Compress-Archive -Path 'artifacts/PiUnrealBlueprint-UE4.27-Win64/*' `
+            -DestinationPath "artifacts/PiUnrealBlueprint-$env:RELEASE_VERSION-UE4.27-Win64.zip"
+
+      - name: Pack npm and checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tgz = npm pack --pack-destination artifacts
+          if ($LASTEXITCODE -ne 0) { throw "npm pack failed with exit code $LASTEXITCODE" }
+          Get-ChildItem -LiteralPath 'artifacts' -File |
+            Where-Object { $_.Extension -in '.zip', '.tgz' } |
+            ForEach-Object {
+              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)" | Set-Content -Encoding ascii -LiteralPath "$($_.FullName).sha256"
+            }
+
+      - name: Upload build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.authorize.outputs.version }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: env.DRY_RUN != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "v$env:RELEASE_VERSION"
+          gh release create $tag artifacts/* --verify-tag --title $tag --generate-notes
+
+      - name: Publish npm package
+        if: env.DRY_RUN != 'true'
+        shell: pwsh
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Get-ChildItem -LiteralPath 'artifacts' -Filter '*.tgz' | Select-Object -Single
+          npm publish $package.FullName --access public

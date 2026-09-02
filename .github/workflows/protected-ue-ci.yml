@@ -1,0 +1,83 @@
+name: Protected UE4.27 CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-ue-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize trusted ref
+    runs-on: ubuntu-latest
+    outputs:
+      trusted: ${{ steps.gate.outputs.trusted }}
+    steps:
+      - id: gate
+        name: Reject forks and untrusted refs
+        shell: bash
+        run: |
+          trusted=false
+          if [[ "${GITHUB_REPOSITORY}" == "Aaalice233/pi-unreal-blueprint" ]] && \
+             { [[ "${GITHUB_REF}" == "refs/heads/main" ]] || [[ "${GITHUB_REF}" == refs/tags/v* ]]; }; then
+            trusted=true
+          fi
+          echo "trusted=${trusted}" >> "${GITHUB_OUTPUT}"
+          [[ "${trusted}" == true ]] || {
+            echo "Protected UE CI accepts only the canonical repository's main branch or v* tags." >&2
+            exit 1
+          }
+
+  ue427:
+    name: UE4.27 compile and E2E
+    needs: authorize
+    if: needs.authorize.outputs.trusted == 'true'
+    environment: ue-ci
+    runs-on: [self-hosted, Windows, X64, trusted, ue4.27]
+    timeout-minutes: 180
+    env:
+      UE_4_27_ROOT: ${{ vars.UE_4_27_ROOT }}
+      PI_UNREAL_UPROJECT: ${{ vars.PI_UNREAL_UPROJECT }}
+    steps:
+      - name: Checkout trusted commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: false
+
+      - name: Verify implementation readiness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = @(
+            'package.json',
+            'scripts/dev.ps1',
+            'unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin'
+          )
+          $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if ($missing.Count -gt 0) {
+            throw "UE CI is intentionally blocked until implementation exists: $($missing -join ', ')"
+          }
+          if (-not $env:UE_4_27_ROOT) { throw 'UE_4_27_ROOT repository variable is required.' }
+          if (-not $env:PI_UNREAL_UPROJECT) {
+            $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
+          }
+          if (-not (Test-Path -LiteralPath $env:PI_UNREAL_UPROJECT)) {
+            throw "Configured test project does not exist: $env:PI_UNREAL_UPROJECT"
+          }
+
+      - name: Run trusted full checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:PI_UNREAL_UPROJECT) {
+            $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
+          }
+          ./scripts/dev.ps1 check

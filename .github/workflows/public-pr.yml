@@ -1,0 +1,80 @@
+name: Public PR CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  public-checks:
+    name: Public checks (GitHub-hosted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          clean: false
+
+      - name: Validate documentation baseline
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          import sys
+
+          required = [
+              "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
+              "SECURITY.md", "CHANGELOG.md",
+              "Docs/product-scope.md", "Docs/product-scope.zh-CN.md",
+              "Docs/architecture.md", "Docs/architecture.zh-CN.md",
+              "Docs/ci-and-release.md", "Docs/ci-and-release.zh-CN.md",
+              "Docs/v1-release-gate.md", "Docs/v1-release-gate.zh-CN.md",
+          ]
+          missing = [name for name in required if not Path(name).is_file()]
+          if missing:
+              raise SystemExit("Missing documentation files: " + ", ".join(missing))
+
+          broken = []
+          link_pattern = re.compile(r"\[[^]]*\]\(([^)]+)\)")
+          for source in [*map(Path, required), *Path("Docs").rglob("*.md")]:
+              text = source.read_text(encoding="utf-8")
+              if not text.strip():
+                  broken.append(f"{source}: empty file")
+              for target in link_pattern.findall(text):
+                  if target.startswith(("http://", "https://", "mailto:", "#")):
+                      continue
+                  path_text = target.split("#", 1)[0]
+                  if path_text and not (source.parent / path_text).resolve().exists():
+                      broken.append(f"{source}: missing local link {target}")
+          if broken:
+              print("\n".join(broken), file=sys.stderr)
+              raise SystemExit(1)
+
+      - name: Run package checks when implementation exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f package.json || ! -f package-lock.json ]]; then
+            echo "Pre-v1 scaffolding: package.json/package-lock.json is not complete, so package checks are not available yet."
+            exit 0
+          fi
+          npm ci
+          npm run check
+
+      - name: Enforce public-runner trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq '^[[:space:]]*runs-on:.*self-hosted|^[[:space:]]*runs-on:[[:space:]]*$' .github/workflows/public-pr.yml; then
+            echo "Public PR workflow must use an explicit GitHub-hosted runner." >&2
+            exit 1
+          fi
+          [[ "$(grep -Ec '^    runs-on: ubuntu-latest$' .github/workflows/public-pr.yml)" == 1 ]]

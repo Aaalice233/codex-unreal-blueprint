@@ -1,0 +1,16 @@
+node_modules/
+src/cli/dist/
+coverage/
+dev.local.json
+*.log
+
+# Unreal build and validation outputs
+unreal/**/Binaries/
+unreal/**/Intermediate/
+unreal/**/Saved/
+unreal/**/DerivedDataCache/
+
+# Local sync manifests, test hosts, and release staging
+.pi-unreal-blueprint/
+.artifacts/
+artifacts/
