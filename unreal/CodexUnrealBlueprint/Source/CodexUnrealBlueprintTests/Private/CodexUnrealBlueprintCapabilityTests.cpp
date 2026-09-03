@@ -4,6 +4,8 @@
 #include "CodexUnrealBlueprintTestFixture.h"
 
 #include "Animation/AnimBlueprint.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Components/PanelWidget.h"
 #include "Components/SceneComponent.h"
@@ -252,6 +254,57 @@ bool FCodexTypesDefaultsAndComponentsUnitTest::RunTest(const FString& Parameters
     TestTrue(TEXT("component made root"), FBlueprintComponentOperations::SetRoot(Blueprint, ComponentRef(TEXT("FixtureRoot"))).bSuccess);
     TestTrue(TEXT("component removed"), FBlueprintComponentOperations::Remove(
         Blueprint, ComponentRef(TEXT("VisualMesh")), false).bSuccess);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexClassDefaultPreflightScopeUnitTest,
+    "CodexUnrealBlueprint.Unit.Blueprint.ClassDefaultPreflightScope", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexClassDefaultPreflightScopeUnitTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("ClassDefaultPreflightScope"));
+    UBlueprint* Target = Fixture.CreateBlueprint(TEXT("BP_Target"));
+    if (!TestNotNull(TEXT("target Blueprint created"), Target)) return false;
+
+    FBlueprintVariableDefinition Count;
+    Count.Name = TEXT("Count");
+    Count.Type = PinType(UEdGraphSchema_K2::PC_Int);
+    Count.DefaultValue = MakeShared<FJsonValueNumber>(1);
+    if (!TestTrue(TEXT("target class-default variable added"), FBlueprintTypeSystem::AddVariable(Target, Count).bSuccess))
+        return false;
+    FKismetEditorUtilities::CompileBlueprint(Target);
+    FString TargetFilename;
+    if (!TestTrue(TEXT("target Blueprint saved"), Fixture.Save(Target, TargetFilename))) return false;
+    Target->GetOutermost()->SetDirtyFlag(false);
+
+    UBlueprint* Referencer = Fixture.CreateBlueprint(TEXT("BP_Referencer"), Target->GeneratedClass);
+    if (!TestNotNull(TEXT("referencing Blueprint created"), Referencer)) return false;
+    FKismetEditorUtilities::CompileBlueprint(Referencer);
+    FString ReferencerFilename;
+    if (!TestTrue(TEXT("referencing Blueprint saved"), Fixture.Save(Referencer, ReferencerFilename))) return false;
+    Referencer->GetOutermost()->SetDirtyFlag(false);
+
+    IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+    Registry.ScanModifiedAssetFiles({TargetFilename, ReferencerFilename});
+    TArray<FName> Referencers;
+    Registry.GetReferencers(Target->GetOutermost()->GetFName(), Referencers,
+        UE::AssetRegistry::EDependencyCategory::Package);
+    if (!TestTrue(TEXT("fixture exposes a real package referencer"),
+        Referencers.Contains(Referencer->GetOutermost()->GetFName()))) return false;
+
+    TSharedRef<FJsonObject> Operation = FScopedFixture::Operation(TEXT("asset.classDefault.set"));
+    Operation->SetStringField(TEXT("assetPath"), Target->GetPathName());
+    Operation->SetStringField(TEXT("propertyPath"), TEXT("Count"));
+    Operation->SetNumberField(TEXT("value"), 2);
+    FPreflightRequest Preflight;
+    TSharedRef<FJsonObject> Validation = MakeShared<FJsonObject>();
+    FProtocolError Error;
+    if (!TestTrue(TEXT("class-default operation validates"),
+        FOperationRegistry::Get().Validate({Operation}, Preflight, Validation, Error))) return false;
+    TestEqual(TEXT("class-default preflight only includes the modified package"),
+        Preflight.TargetPackageNames.Num(), 1);
+    TestTrue(TEXT("class-default preflight includes its target package"),
+        Preflight.TargetPackageNames.Contains(Target->GetOutermost()->GetName()));
     return true;
 }
 

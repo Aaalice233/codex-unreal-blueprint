@@ -316,6 +316,13 @@ namespace CodexUnrealBlueprint
             }
         }
 
+        bool RequiresReferencerImpacts(const FString& OperationName)
+        {
+            // A class-default value change does not alter the Blueprint's public structure. Loading and compiling
+            // every referencer can synchronously pull an entire project's hard-reference graph into the Editor.
+            return OperationName != TEXT("asset.classDefault.set");
+        }
+
         bool ParseComponentReference(const TSharedPtr<FJsonObject>& Json, FComponentReference& Out)
         {
             if (!Json.IsValid()) return false;
@@ -373,7 +380,8 @@ namespace CodexUnrealBlueprint
                 if (Operation->TryGetStringField(OperationName == TEXT("asset.create") ? TEXT("packagePath") : TEXT("assetPath"), Path))
                 {
                     AddPackageImpact(Path, OperationName != TEXT("asset.delete"), Request);
-                    if (OperationName != TEXT("asset.create")) AddReferencerImpacts(Path, Request);
+                    if (OperationName != TEXT("asset.create") && RequiresReferencerImpacts(OperationName))
+                        AddReferencerImpacts(Path, Request);
                 }
                 if (Operation->TryGetStringField(TEXT("destinationPath"), Path)) AddPackageImpact(Path, true, Request);
 
@@ -413,7 +421,8 @@ namespace CodexUnrealBlueprint
                 if (!AssetPath.IsEmpty())
                 {
                     AddPackageImpact(AssetPath, Name != TEXT("asset.delete"), RuntimeImpacts, &ImpactPackageNames);
-                    AddReferencerImpacts(AssetPath, RuntimeImpacts, &ImpactPackageNames);
+                    if (RequiresReferencerImpacts(Name))
+                        AddReferencerImpacts(AssetPath, RuntimeImpacts, &ImpactPackageNames);
                 }
                 FString DestinationPath;
                 if (Operation->TryGetStringField(TEXT("destinationPath"), DestinationPath))

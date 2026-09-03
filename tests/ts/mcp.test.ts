@@ -45,6 +45,18 @@ describe("Codex stdio MCP server", () => {
     expect(toolSchemas.blueprint_validate.safeParse({ operations: [{ operation: "future.operation" }], typo: true }).success).toBe(false);
   });
 
+  it("allows class-default inspection to select exact property paths", () => {
+    expect(toolSchemas.blueprint_inspect.safeParse({
+      assetPath: "/Game/Blueprints/ResourceMap/BP_ResourceMap_New_5.BP_ResourceMap_New_5",
+      facets: ["classDefaults"],
+      classDefaultPropertyPaths: ["bp_soundMap"]
+    }).success).toBe(true);
+    expect(toolSchemas.blueprint_inspect.safeParse({
+      assetPath: "/Game/Test/BP_Test.BP_Test",
+      classDefaultPropertyPaths: [""]
+    }).success).toBe(false);
+  });
+
   it("returns a structured disconnected status when no Editor session exists", async () => {
     await mkdir(testState, { recursive: true });
     const previous = process.env.LOCALAPPDATA;

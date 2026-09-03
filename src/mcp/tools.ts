@@ -31,6 +31,7 @@ export const toolSchemas = {
     session: sessionSchema,
     assetPath: z.string().min(1),
     facets: z.array(z.string().min(1)).max(32).optional(),
+    classDefaultPropertyPaths: z.array(z.string().min(1)).max(500).optional(),
     cursor: z.string().optional(),
     limit: z.number().int().min(1).max(500).optional()
   }).strict(),
