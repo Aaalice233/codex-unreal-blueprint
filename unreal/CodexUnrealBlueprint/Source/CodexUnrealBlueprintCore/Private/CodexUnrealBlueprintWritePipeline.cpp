@@ -1,7 +1,6 @@
 #include "CodexUnrealBlueprintWritePipeline.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "Async/Async.h"
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/Blueprint.h"
@@ -12,6 +11,7 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "PackageTools.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintSourceControl.h"
 #include "ScopedTransaction.h"
 #include "UObject/Package.h"
@@ -276,11 +276,29 @@ namespace CodexUnrealBlueprint
 
         FWritePipelineResult Result;
         FEvent* Completion = FPlatformProcess::GetSynchEventFromPool(true);
-        AsyncTask(ENamedThreads::GameThread, [&Request, &Progress, &Result, Completion]()
+        const bool bQueued = FEditorSafeDispatcher::Get().Enqueue(
+            [&Request, &Progress, &Result, Completion]()
+            {
+                Result = ExecuteOnGameThread(Request, Progress);
+                Completion->Trigger();
+            },
+            [&Result, Completion]()
+            {
+                SetError(Result, TEXT("write.editorDispatchStopped"),
+                    TEXT("The Editor-safe dispatcher stopped before the write could run."),
+                    TEXT("FEditorSafeDispatcher::Shutdown"));
+                PopulateFailureReport(Result, TEXT("preflight"), Result.Error.Message);
+                Completion->Trigger();
+            });
+        if (!bQueued)
         {
-            Result = ExecuteOnGameThread(Request, Progress);
-            Completion->Trigger();
-        });
+            SetError(Result, TEXT("write.editorDispatchUnavailable"),
+                TEXT("The Editor-safe dispatcher is not accepting writes."),
+                TEXT("FEditorSafeDispatcher::Enqueue"));
+            PopulateFailureReport(Result, TEXT("preflight"), Result.Error.Message);
+            FPlatformProcess::ReturnSynchEventToPool(Completion);
+            return Result;
+        }
         while (!Completion->Wait(250))
         {
             if (Progress.Heartbeat)
@@ -726,6 +744,10 @@ namespace CodexUnrealBlueprint
                     {
                         if (Asset && Asset->IsAsset()) FAssetRegistryModule::AssetCreated(Asset);
                     }
+                    // AssetCreated marks the package as PKG_NewlyCreated. This package was just loaded
+                    // from its saved file, so preserve the registry notification without making later
+                    // independent reload verification reject it as in-memory-only.
+                    ReloadedPackage->ClearPackageFlags(PKG_NewlyCreated);
                 }
             }
         }

@@ -1,6 +1,5 @@
 #include "CodexUnrealBlueprintTransportServer.h"
 
-#include "Async/Async.h"
 #include "Common/TcpListener.h"
 #include "Containers/Ticker.h"
 #include "Dom/JsonObject.h"
@@ -17,6 +16,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintFraming.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintRuntimeStatus.h"
@@ -489,30 +489,50 @@ namespace CodexUnrealBlueprint
             }
 
             const TWeakPtr<FTransportConnection, ESPMode::ThreadSafe> WeakConnection = AsShared();
-            AsyncTask(ENamedThreads::GameThread, [WeakConnection, Request]()
-            {
-                const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> Connection = WeakConnection.Pin();
-                if (!Connection.IsValid())
+            const bool bQueued = FEditorSafeDispatcher::Get().Enqueue(
+                [WeakConnection, Request]()
                 {
-                    return;
-                }
-                if (!Connection->IsRunning())
+                    const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> Connection = WeakConnection.Pin();
+                    if (!Connection.IsValid())
+                    {
+                        return;
+                    }
+                    if (!Connection->IsRunning())
+                    {
+                        Connection->PendingRequests.Release();
+                        return;
+                    }
+                    check(IsInGameThread());
+                    FCoreService::Get().DispatchAsync(Request, [WeakConnection, Request](FProtocolResponse&& Response)
+                    {
+                        const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> CurrentConnection = WeakConnection.Pin();
+                        if (!CurrentConnection.IsValid()) return;
+                        CurrentConnection->PendingRequests.Release();
+                        if (!CurrentConnection->IsRunning()) return;
+                        Response.Id = Request.Id;
+                        Response.IdJsonValue = Request.IdJsonValue;
+                        CurrentConnection->QueueResponse(Response);
+                    });
+                },
+                [WeakConnection, Request]()
                 {
+                    const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> Connection = WeakConnection.Pin();
+                    if (!Connection.IsValid()) return;
                     Connection->PendingRequests.Release();
-                    return;
-                }
-                check(IsInGameThread());
-                FCoreService::Get().DispatchAsync(Request, [WeakConnection, Request](FProtocolResponse&& Response)
-                {
-                    const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> CurrentConnection = WeakConnection.Pin();
-                    if (!CurrentConnection.IsValid()) return;
-                    CurrentConnection->PendingRequests.Release();
-                    if (!CurrentConnection->IsRunning()) return;
-                    Response.Id = Request.Id;
-                    Response.IdJsonValue = Request.IdJsonValue;
-                    CurrentConnection->QueueResponse(Response);
+                    if (Connection->IsRunning())
+                    {
+                        Connection->QueueError(&Request, EErrorCode::TransportError,
+                            TEXT("The Editor-safe dispatcher stopped before the request could run."),
+                            TEXT("FEditorSafeDispatcher::Shutdown"), false);
+                    }
                 });
-            });
+            if (!bQueued)
+            {
+                PendingRequests.Release();
+                QueueError(&Request, EErrorCode::TransportError,
+                    TEXT("The Editor-safe dispatcher is not accepting requests."),
+                    TEXT("FEditorSafeDispatcher::Enqueue"), false);
+            }
         }
 
         void Authenticate(const FProtocolRequest& Request)

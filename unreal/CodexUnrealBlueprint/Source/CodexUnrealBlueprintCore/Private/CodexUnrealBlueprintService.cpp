@@ -1,6 +1,7 @@
 #include "CodexUnrealBlueprintService.h"
 
 #include "CodexUnrealBlueprintJobs.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintInspection.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
 #include "CodexUnrealBlueprintPreflight.h"
@@ -11,7 +12,6 @@
 #include "CodexUnrealBlueprintVerification.h"
 #include "CodexUnrealBlueprintWritePipeline.h"
 
-#include "Async/Async.h"
 #include "Editor.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
@@ -150,7 +150,23 @@ namespace CodexUnrealBlueprint
         {
             if (IsInGameThread()) return Work();
             FProtocolResponse Response; FEvent* Event = FPlatformProcess::GetSynchEventFromPool(true);
-            AsyncTask(ENamedThreads::GameThread, [&Response, &Work, Event]() { Response = Work(); Event->Trigger(); });
+            const bool bQueued = FEditorSafeDispatcher::Get().Enqueue(
+                [&Response, &Work, Event]() { Response = Work(); Event->Trigger(); },
+                [&Response, Event]()
+                {
+                    Response.Error = FProtocolError::Make(EErrorCode::InternalError,
+                        TEXT("The Editor-safe dispatcher stopped before the request could run."),
+                        TEXT("FEditorSafeDispatcher::Shutdown"));
+                    Event->Trigger();
+                });
+            if (!bQueued)
+            {
+                Response.Error = FProtocolError::Make(EErrorCode::InternalError,
+                    TEXT("The Editor-safe dispatcher is not accepting requests."),
+                    TEXT("FEditorSafeDispatcher::Enqueue"));
+                FPlatformProcess::ReturnSynchEventToPool(Event);
+                return Response;
+            }
             Event->Wait(); FPlatformProcess::ReturnSynchEventToPool(Event); return Response;
         }
     }

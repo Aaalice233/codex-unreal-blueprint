@@ -23,6 +23,7 @@
 #include "HAL/PlatformTime.h"
 #include "CodexUnrealBlueprintActionCatalog.h"
 #include "CodexUnrealBlueprintComponentOperations.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintGraphOperations.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
@@ -123,6 +124,7 @@ namespace
         while (FPlatformTime::Seconds() < Deadline)
         {
             FJobManager::Get().Tick(FPlatformTime::Seconds());
+            FEditorSafeDispatcher::Get().Tick();
             FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
             if (FJobManager::Get().Get(JobId, OutSnapshot) && OutSnapshot.bTerminal)
             {
@@ -382,8 +384,13 @@ bool FCodexPublicAssetFamilyE2ETest::RunTest(const FString& Parameters)
     {
         UObject* Asset = LoadObject<UObject>(nullptr, *FScopedFixture::ObjectPath(Fixture.Package(Case.Leaf)));
         TestNotNull(*FString::Printf(TEXT("%s persists after public pipeline reload"), Case.Leaf), Asset);
-        if (Asset) TestTrue(*FString::Printf(TEXT("%s has the expected asset family"), Case.Leaf),
-            Asset->IsA(Case.ExpectedClass));
+        if (Asset)
+        {
+            TestTrue(*FString::Printf(TEXT("%s has the expected asset family"), Case.Leaf),
+                Asset->IsA(Case.ExpectedClass));
+            TestFalse(*FString::Printf(TEXT("%s remains reloadable after Asset Registry synchronization"), Case.Leaf),
+                Asset->GetOutermost()->HasAnyPackageFlags(PKG_InMemoryOnly));
+        }
     }
     UBlueprint* PublicBlueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
     if (TestNotNull(TEXT("public Blueprint reloads for independent assertions"), PublicBlueprint))

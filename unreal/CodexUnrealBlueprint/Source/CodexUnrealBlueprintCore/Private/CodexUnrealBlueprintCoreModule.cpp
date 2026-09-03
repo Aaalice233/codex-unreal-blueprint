@@ -3,6 +3,7 @@
 #include "Modules/ModuleManager.h"
 #include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintProtocol.h"
 #include "CodexUnrealBlueprintRequestJournal.h"
@@ -11,6 +12,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogCodexUnrealBlueprintCore, Log, All);
 
 void FCodexUnrealBlueprintCoreModule::StartupModule()
 {
+    CodexUnrealBlueprint::FEditorSafeDispatcher::Get().Start();
     CodexUnrealBlueprint::FProtocolError JournalError;
     if (!CodexUnrealBlueprint::FRequestJournal::Get().Initialize(JournalError))
     {
@@ -30,11 +32,13 @@ void FCodexUnrealBlueprintCoreModule::ShutdownModule()
         FTicker::GetCoreTicker().RemoveTicker(JobTickerHandle);
         JobTickerHandle.Reset();
     }
+    CodexUnrealBlueprint::FEditorSafeDispatcher::Get().Shutdown();
     CodexUnrealBlueprint::FJobManager::Get().Shutdown();
 }
 
 bool FCodexUnrealBlueprintCoreModule::TickJobs(float DeltaTime)
 {
+    CodexUnrealBlueprint::FEditorSafeDispatcher::Get().Tick();
     CodexUnrealBlueprint::FJobManager::Get().Tick(FPlatformTime::Seconds());
     return true;
 }

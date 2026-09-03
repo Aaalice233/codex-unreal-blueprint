@@ -9,6 +9,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintRequestJournal.h"
 #include "CodexUnrealBlueprintTestFixture.h"
@@ -49,6 +50,33 @@ namespace
         Params->SetNumberField(TEXT("value"), Value);
         return Params;
     }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexEditorSafeDispatcherTest,
+    "CodexUnrealBlueprint.Dispatch.EditorSafeCoreTick", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexEditorSafeDispatcherTest::RunTest(const FString& Parameters)
+{
+    FThreadSafeCounter Executed;
+    FThreadSafeCounter WrongThread;
+    TFuture<bool> Enqueued = Async(EAsyncExecution::ThreadPool, [&Executed, &WrongThread]()
+    {
+        return FEditorSafeDispatcher::Get().Enqueue([&Executed, &WrongThread]()
+        {
+            if (!IsInGameThread()) WrongThread.Increment();
+            Executed.Increment();
+        });
+    });
+    Enqueued.Wait();
+
+    TestTrue(TEXT("background producer queues editor work"), Enqueued.Get());
+    TestEqual(TEXT("queued editor work does not run through TaskGraph"), Executed.GetValue(), 0);
+    FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+    TestEqual(TEXT("generic GameThread pumping cannot run editor work"), Executed.GetValue(), 0);
+    FEditorSafeDispatcher::Get().Tick();
+    TestEqual(TEXT("Core ticker dispatch executes editor work"), Executed.GetValue(), 1);
+    TestEqual(TEXT("editor work stays on the GameThread"), WrongThread.GetValue(), 0);
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexRequestJournalIdempotencyTest,
