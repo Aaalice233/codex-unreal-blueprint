@@ -170,10 +170,12 @@ bool FCodexLayeredAssetInspectionUnitTest::RunTest(const FString& Parameters)
 {
     FScopedFixture Fixture(TEXT("LayeredAssets"));
     UBlueprint* Blueprint = Fixture.CreateBlueprint(TEXT("BP_Inspectable"));
+    UWidgetBlueprint* Widget = Fixture.CreateWidgetBlueprint(TEXT("WBP_Inspectable"));
     UMaterial* Material = CreateInspectableAsset<UMaterial>(Fixture, TEXT("M_Inspectable"));
     UAnimMontage* Montage = CreateInspectableAsset<UAnimMontage>(Fixture, TEXT("AM_Inspectable"));
     UNiagaraSystem* Niagara = CreateInspectableAsset<UNiagaraSystem>(Fixture, TEXT("NS_Inspectable"));
     if (!TestNotNull(TEXT("Blueprint fixture exists"), Blueprint)
+        || !TestNotNull(TEXT("Widget Blueprint fixture exists"), Widget)
         || !TestNotNull(TEXT("Material fixture exists"), Material)
         || !TestNotNull(TEXT("Montage fixture exists"), Montage)
         || !TestNotNull(TEXT("Niagara fixture exists"), Niagara)) return false;
@@ -181,6 +183,7 @@ bool FCodexLayeredAssetInspectionUnitTest::RunTest(const FString& Parameters)
     struct FCase { UObject* Asset; const TCHAR* SpecializedField; bool bEditable; };
     const FCase Cases[] = {
         {Blueprint, TEXT("blueprint"), true},
+        {Widget, TEXT("blueprint"), true},
         {Material, TEXT("material"), false},
         {Montage, TEXT("animMontage"), false},
         {Niagara, TEXT("niagaraSystem"), false}

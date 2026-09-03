@@ -34,7 +34,14 @@ process {
 }
 
 end {
-    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue | Select-Object -First 1
+    $dotnetCandidates = @(
+        $(if ($dotnetCommand) { $dotnetCommand.Source }),
+        $(if ($env:DOTNET_ROOT) { Join-Path $env:DOTNET_ROOT "dotnet.exe" }),
+        (Join-Path ([Environment]::GetFolderPath("ProgramFiles")) "dotnet/dotnet.exe")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -Unique
+    $dotnetPath = $dotnetCandidates | Select-Object -First 1
+    if (-not $dotnetPath) {
         throw "未找到 dotnet。该脚本需要 .NET 8 SDK。"
     }
 
@@ -72,7 +79,7 @@ end {
     if ($Rebuild -or -not (Test-Path -LiteralPath $dllPath -PathType Leaf)) {
         New-Item -ItemType Directory -Force -Path $buildDir, $binDir | Out-Null
         Copy-Item -LiteralPath $sourceFiles -Destination $buildDir -Force
-        $buildOutput = & dotnet build (Join-Path $buildDir "UnrealUAssetInspector.csproj") `
+        $buildOutput = & $dotnetPath build (Join-Path $buildDir "UnrealUAssetInspector.csproj") `
             --configuration Release `
             --output $binDir `
             --nologo 2>&1
@@ -134,7 +141,7 @@ end {
             }
         }
 
-        $result = & dotnet @arguments
+        $result = & $dotnetPath @arguments
         if ($LASTEXITCODE -ne 0) {
             throw "解析失败：$asset，dotnet exit code=$LASTEXITCODE"
         }

@@ -66,7 +66,8 @@ describe("Codex stdio MCP server", () => {
     expect(toolSchemas.unreal_asset_inspect.safeParse({
       mode: "offline",
       filePath: "E:/Project/Content/Effects/NS_Test.uasset",
-      searchTerms: ["User.SpawnProbability"]
+      searchTerms: ["User.SpawnProbability"],
+      offlineStaging: { enabled: true, maxCachedAssets: 64 }
     }).success).toBe(true);
     expect(toolSchemas.unreal_asset_compare.safeParse({
       mode: "offline",
@@ -79,6 +80,22 @@ describe("Codex stdio MCP server", () => {
       searchRoot: "E:/Project/Content"
     }).success).toBe(true);
     expect(toolSchemas.unreal_asset_inspect.safeParse({ mode: "offline" }).success).toBe(false);
+    expect(toolSchemas.unreal_asset_inspect.safeParse({
+      mode: "offline",
+      filePath: "E:/Project/Content/A.uasset",
+      offlineStaging: { enabled: true, maxCachedAssets: 513 }
+    }).success).toBe(false);
+    expect(toolSchemas.unreal_asset_compare.safeParse({
+      mode: "offline",
+      baseFilePath: "E:/Project/Content/A.uasset",
+      targetFilePath: "E:/Project/Content/B.uasset",
+      offlineStaging: { enabled: true, maxCachedAssets: 1 }
+    }).success).toBe(true);
+    expect(toolSchemas.unreal_asset_inspect.safeParse({
+      mode: "offline",
+      filePath: "E:/Project/Content/A.uasset",
+      offlineStaging: { enabled: true, maxCachedAssets: 0 }
+    }).success).toBe(false);
   });
 
   it("returns a structured disconnected status when no Editor session exists", async () => {

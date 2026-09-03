@@ -9,7 +9,8 @@ param(
     [string]$CodexPluginTarget,
     [string]$MarketplacePath,
     [switch]$DryRun,
-    [switch]$SkipUnrealBuild
+    [switch]$SkipUnrealBuild,
+    [switch]$CodexOnly
 )
 
 Set-StrictMode -Version Latest
@@ -81,7 +82,7 @@ function Resolve-CodexExecutable($Settings) {
     throw "未找到可实际执行的 Codex CLI。可通过 -CodexExecutable 指定桌面版 codex.exe。"
 }
 
-function Assert-Prerequisites($Settings) {
+function Assert-Prerequisites($Settings, [bool]$RequireUnreal) {
     foreach ($command in @("node", "npm", "dotnet")) { if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "缺少命令：$command" } }
     if (-not $DryRun) {
         $nodeVersion = (& node --version).Trim().TrimStart("v")
@@ -90,14 +91,16 @@ function Assert-Prerequisites($Settings) {
         if ($LASTEXITCODE -ne 0 -or [version]$dotnetVersion -lt [version]"8.0.0") { throw ".NET SDK 必须 >= 8.0。" }
     }
     $Settings.codexExecutable = Resolve-CodexExecutable $Settings
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
-    if (-not $DryRun) {
-        if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw "未找到 vswhere.exe。" }
-        $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($vs -join ""))) { throw "未找到 Visual Studio C++ 工具链。" }
-    }
-    foreach ($path in @($Settings.uproject, "$($Settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat", "$($Settings.engineRoot)/Engine/Binaries/Win64/UE4Editor.exe")) {
-        if (-not $DryRun -and -not (Test-Path -LiteralPath $path)) { throw "缺少前置路径：$path" }
+    if ($RequireUnreal) {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+        if (-not $DryRun) {
+            if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw "未找到 vswhere.exe。" }
+            $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($vs -join ""))) { throw "未找到 Visual Studio C++ 工具链。" }
+        }
+        foreach ($path in @($Settings.uproject, "$($Settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat", "$($Settings.engineRoot)/Engine/Binaries/Win64/UE4Editor.exe")) {
+            if (-not $DryRun -and -not (Test-Path -LiteralPath $path)) { throw "缺少前置路径：$path" }
+        }
     }
 }
 
@@ -211,27 +214,29 @@ function Update-PersonalMarketplace($Settings) {
 }
 
 $settings = Get-Settings
-Assert-Prerequisites $settings
+Assert-Prerequisites $settings (-not $CodexOnly)
 Invoke-Checked "npm" @("run", "check")
-if (-not $SkipUnrealBuild) {
-    $packageRoot = "$script:Repo/artifacts/plugin-build"
-    if (-not $DryRun -and (Test-Path -LiteralPath $packageRoot)) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
-    Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat" @("BuildPlugin", "-Plugin=$script:Repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$packageRoot", "-TargetPlatforms=Win64", "-Rocket")
+if (-not $CodexOnly) {
+    if (-not $SkipUnrealBuild) {
+        $packageRoot = "$script:Repo/artifacts/plugin-build"
+        if (-not $DryRun -and (Test-Path -LiteralPath $packageRoot)) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
+        Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat" @("BuildPlugin", "-Plugin=$script:Repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$packageRoot", "-TargetPlatforms=Win64", "-Rocket")
+    }
+    Assert-EditorClosed $settings
+    $ueFiles = Get-SourceFiles "$script:Repo/unreal/CodexUnrealBlueprint" @("Config", "Source", "CodexUnrealBlueprint.uplugin", "README.md")
+    if (-not $SkipUnrealBuild) {
+        # Install the exact DLLs produced by the validated BuildPlugin run. Copying only source would leave an
+        # older binary active until the project happened to rebuild the plugin itself.
+        $ueFiles += Get-SourceFiles $packageRoot @("Binaries")
+        $ueFiles = @($ueFiles | Sort-Object path -Unique)
+    }
+    elseif (Test-Path -LiteralPath "$($settings.uePluginTarget)/Binaries" -PathType Container) {
+        # A source-only maintenance run must not make previously installed, managed DLLs disappear.
+        $ueFiles += Get-SourceFiles $settings.uePluginTarget @("Binaries")
+        $ueFiles = @($ueFiles | Sort-Object path -Unique)
+    }
+    Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
 }
-Assert-EditorClosed $settings
-$ueFiles = Get-SourceFiles "$script:Repo/unreal/CodexUnrealBlueprint" @("Config", "Source", "CodexUnrealBlueprint.uplugin", "README.md")
-if (-not $SkipUnrealBuild) {
-    # Install the exact DLLs produced by the validated BuildPlugin run. Copying only source would leave an
-    # older binary active until the project happened to rebuild the plugin itself.
-    $ueFiles += Get-SourceFiles $packageRoot @("Binaries")
-    $ueFiles = @($ueFiles | Sort-Object path -Unique)
-}
-elseif (Test-Path -LiteralPath "$($settings.uePluginTarget)/Binaries" -PathType Container) {
-    # A source-only maintenance run must not make previously installed, managed DLLs disappear.
-    $ueFiles += Get-SourceFiles $settings.uePluginTarget @("Binaries")
-    $ueFiles = @($ueFiles | Sort-Object path -Unique)
-}
-Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
 $codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "offline", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "README.zh-CN.md")
 $codexSourceFiles = Get-SourceFiles $script:Repo $codexIncludes
 $codexStage = New-CodexPluginInstallStage $codexSourceFiles
@@ -239,4 +244,5 @@ $codexFiles = Get-SourceFiles $codexStage $codexIncludes
 Sync-ManagedDirectory $settings.codexPluginTarget $codexFiles
 $marketplaceName = Update-PersonalMarketplace $settings
 Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
-Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和十二个 MCP tools。"
+if ($CodexOnly) { Write-Step "Codex 侧安装完成。Unreal Editor 无需重启；请新建 Codex task 以加载 Skill 和十二个 MCP tools。" }
+else { Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和十二个 MCP tools。" }

@@ -14,6 +14,10 @@ const operationSchema = z.object({ operation: z.string().min(1) }).passthrough()
 const assetModeSchema = z.enum(["auto", "editor", "offline"]).optional();
 const assetFacetsSchema = z.array(z.enum(["support", "generic", "properties", "dependencies", "referencers", "specialized"])).max(16).optional();
 const propertyPathsSchema = z.array(z.string().min(1)).max(500).optional();
+const offlineStagingSchema = z.object({
+  enabled: z.boolean().optional(),
+  maxCachedAssets: z.number().int().min(1).max(512).optional()
+}).strict().optional();
 
 export const toolSchemas = {
   unreal_status: z.object({ session: sessionSchema }).strict(),
@@ -33,6 +37,7 @@ export const toolSchemas = {
     filePath: z.string().min(1).optional(),
     contentRoot: z.string().min(1).optional(),
     searchTerms: z.array(z.string().min(1)).max(100).optional(),
+    offlineStaging: offlineStagingSchema,
     facets: assetFacetsSchema,
     propertyPaths: propertyPathsSchema,
     cursor: z.string().optional(),
@@ -48,6 +53,7 @@ export const toolSchemas = {
     targetFilePath: z.string().min(1).optional(),
     contentRoot: z.string().min(1).optional(),
     searchTerms: z.array(z.string().min(1)).max(100).optional(),
+    offlineStaging: offlineStagingSchema,
     facets: assetFacetsSchema,
     propertyPaths: propertyPathsSchema,
     cursor: z.string().optional(),
@@ -112,8 +118,8 @@ export const toolDescriptions: Record<ToolName, string> = {
   unreal_status: "Discover or select the exact UE4.27 Editor and return session, PIE, source-control, dirty-package, and queue status.",
   unreal_doctor: "Check the UE plugin, protocol, project configuration, port, permissions, and build environment.",
   unreal_search: "Search Blueprint assets, classes, members, properties, graph actions, or operations with pagination.",
-  unreal_asset_inspect: "Inspect any Unreal asset through layered generic, specialized, and editable capabilities; auto mode prefers the Editor and falls back to the bundled offline parser.",
-  unreal_asset_compare: "Compare two Unreal assets through the Editor or bundled offline parser and return structured changed facets or fields.",
+  unreal_asset_inspect: "Inspect any Unreal asset through layered capabilities; offline-only assets can be parsed from a rolling temporary cache without restarting the Editor.",
+  unreal_asset_compare: "Compare two Unreal assets through the Editor or a rolling temporary offline cache and return structured changes.",
   unreal_asset_referencers: "Find precise Asset Registry referencers in Editor mode or serialized binary reference evidence in offline mode.",
   blueprint_capabilities: "Fetch strict operation parameter JSON Schemas and examples dynamically from the UE Operation Registry.",
   blueprint_inspect: "Read paged Blueprint facets, stable IDs, compile state, and structure hashes without modifying assets.",
@@ -176,12 +182,12 @@ function canRunOfflineAssetTool(name: ToolName, parameters: JsonObject): boolean
 }
 
 async function invokeOfflineAssetTool(name: ToolName, parameters: JsonObject): Promise<JsonValue> {
-  const { contentRoot, searchTerms } = offlineArguments(parameters);
+  const { contentRoot, searchTerms, staging } = offlineArguments(parameters);
   if (name === "unreal_asset_inspect" && typeof parameters.filePath === "string") {
-    return inspectOfflineAsset(parameters.filePath, contentRoot, searchTerms);
+    return inspectOfflineAsset(parameters.filePath, contentRoot, searchTerms, staging);
   }
   if (name === "unreal_asset_compare" && typeof parameters.baseFilePath === "string" && typeof parameters.targetFilePath === "string") {
-    return compareOfflineAssets(parameters.baseFilePath, parameters.targetFilePath, contentRoot, searchTerms);
+    return compareOfflineAssets(parameters.baseFilePath, parameters.targetFilePath, contentRoot, searchTerms, staging);
   }
   if (name === "unreal_asset_referencers" && typeof parameters.targetFilePath === "string" && typeof parameters.searchRoot === "string") {
     const { offset, limit } = offlinePagination(parameters);

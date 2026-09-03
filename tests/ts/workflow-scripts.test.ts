@@ -50,6 +50,16 @@ describe("PowerShell development workflow", () => {
     expect(result.stdout).not.toContain("RunUAT.bat");
   });
 
+  it("updates only the Codex plugin without touching a running Unreal Editor", () => {
+    const result = runPowerShell(setupScript, ["-Config", configPath, "-DryRun", "-CodexOnly"]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("npm run check");
+    expect(result.stdout).toContain("plugin add codex-unreal-blueprint@personal");
+    expect(result.stdout).not.toContain("RunUAT.bat");
+    expect(result.stdout).not.toContain("Plugins/CodexUnrealBlueprint");
+    expect(result.stdout).toContain("Unreal Editor 无需重启");
+  });
+
   it("keeps destructive boundaries explicit in the installer", () => {
     const source = readFileSync(setupScript, "utf8");
     expect(source).toContain("Resolve-ManagedPath");
@@ -63,9 +73,18 @@ describe("PowerShell development workflow", () => {
     expect(source).toContain('Get-SourceFiles $packageRoot @("Binaries")');
     expect(source).toContain('Get-SourceFiles $settings.uePluginTarget @("Binaries")');
     expect(source).toContain('@("node", "npm", "dotnet")');
+    expect(source).toContain('Assert-Prerequisites $settings (-not $CodexOnly)');
     expect(source).toContain('.NET SDK 必须 >= 8.0');
     expect(source.indexOf('Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat"'))
       .toBeLessThan(source.indexOf('Get-SourceFiles $packageRoot @("Binaries")'));
     for (const forbidden of ["reset --hard", "git clean", "git stash", "push --force"]) expect(source).not.toContain(forbidden);
+  });
+
+  it("keeps the bundled offline parser runnable under a reduced MCP environment", () => {
+    const wrapper = readFileSync(`${repo}/src/offline/uasset-inspector.ts`, "utf8");
+    const parser = readFileSync(`${repo}/offline/Inspect-UAsset.ps1`, "utf8");
+    expect(wrapper).toContain('environment.PATHEXT = ".COM;.EXE;.BAT;.CMD"');
+    expect(parser).toContain('[Environment]::GetFolderPath("ProgramFiles")');
+    expect(parser).toContain('& $dotnetPath @arguments');
   });
 });

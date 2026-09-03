@@ -15,7 +15,7 @@ Use this package's twelve tools. Do not require or install a separate `inspect-u
 When the tools are unavailable, the protocol or plugin version is stale, or the user asks to install/update this package:
 
 1. Work from the `codex-unreal-blueprint` source checkout that contains `scripts/setup.ps1`. Require Windows, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, UE4.27, and a working Codex CLI.
-2. Check whether the target `.uproject` is open in Unreal Editor. Do not terminate the Editor or discard unsaved work automatically; ask the user to close that Editor before installation. The installer intentionally refuses to overwrite a loaded UE plugin.
+2. Determine whether the update changes the UE plugin or only the Codex Skill/MCP/offline parser. For a full installation, check whether the target `.uproject` is open in Unreal Editor. Do not terminate the Editor or discard unsaved work automatically; ask the user to close that Editor before installation. The installer intentionally refuses to overwrite a loaded UE plugin.
 3. From the repository root, run:
 
    ```powershell
@@ -24,9 +24,9 @@ When the tools are unavailable, the protocol or plugin version is stale, or the 
      -EngineRoot E:/UE_4.27
    ```
 
-   Add `-CodexExecutable C:/path/to/codex.exe` only when automatic Codex CLI discovery fails. Use `-Scope engine` only when the user explicitly wants an Engine-wide UE plugin instead of the default project installation.
-4. Let the script run the TypeScript checks, build the UE4.27 Win64 plugin, synchronize managed UE and Codex plugin files, and register the personal Marketplace entry. Do not replace this with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
-5. After success, restart Unreal Editor and create a new Codex task so the updated Skill and all twelve MCP tools are loaded. Re-run the same command for later updates; no separate asset-inspection skill is needed.
+   Add `-CodexExecutable C:/path/to/codex.exe` only when automatic Codex CLI discovery fails. Use `-Scope engine` only when the user explicitly wants an Engine-wide UE plugin instead of the default project installation. When the installed UE plugin is already current and the update changes only the Skill, MCP server, or bundled offline parser, add `-CodexOnly`; this runs checks and updates the managed Codex plugin while leaving UE files and the running Editor untouched.
+4. Let the script run the applicable checks, synchronize managed files, and register the personal Marketplace entry. A full run also builds and installs the UE4.27 Win64 plugin. Do not replace this with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
+5. After a full installation, restart Unreal Editor and create a new Codex task. After `-CodexOnly`, keep the Editor running and only create a new Codex task so the updated Skill and all twelve MCP tools are loaded. Re-run the applicable command for later updates; no separate asset-inspection skill is needed.
 
 Verify both paths after installation:
 
@@ -41,6 +41,10 @@ Verify both paths after installation:
 3. Use `mode: "editor"` when current WidgetTree, AnimGraph, Material, Montage, Niagara, reflected values, or precise Asset Registry data matters.
 4. Use `mode: "offline"` when the Editor is closed or serialized disk evidence is specifically required. Offline results are read-only and do not prove runtime behavior.
 5. Read `facets.support`: `generic` applies to every loadable asset, `specialized` means a semantic inspector exists, and `editable` means the asset type is backed by the strict write pipeline.
+
+For an asset that requires offline parsing, or when the Editor may hold its package open, use `offlineStaging: { "enabled": true }` on `unreal_asset_inspect` or `unreal_asset_compare` before asking to close or restart the Editor. The MCP server copies only the requested `.uasset`/`.umap` packages and their existing `.uexp`, `.ubulk`, and `.uptnl` companions into an isolated snapshot, verifies that each source stayed stable during copying, and parses the copies. Successful snapshots are retained in a rolling temporary cache so repeated offline work does not require touching the live package again.
+
+`maxCachedAssets` limits the number of retained primary `.uasset`/`.umap` packages in that cache, solely to prevent the temporary folder from growing indefinitely. It defaults to 64 and has a hard maximum of 512. Companion files do not consume asset slots. When the cache is full, the server evicts the oldest completed snapshots and continues copying the new request; even a single compare/batch request larger than the retention limit is parsed in full and trimmed only after parsing. Historical cache usage or request width must never be reported as a reason that a new asset cannot be staged. Read the returned `staging` object and require `used: true` plus `retention: "rolling-cache"` before claiming isolated parsing; `cachedAssetCount` and `evictedAssetCount` describe cache maintenance. A stable-copy or cache I/O failure returns `OFFLINE_STAGING_FAILED` and must not silently fall back to the live file. Staging covers requested packages and companions, not their complete dependency graph, so dependency and runtime conclusions retain the normal offline evidence limits.
 
 Use `unreal_asset_compare` for before/after or sibling assets. Use `unreal_asset_referencers` for references: Editor mode is authoritative Asset Registry evidence; offline mode is a bounded binary search and must be described as serialized string evidence.
 

@@ -25,6 +25,8 @@
 
 离线检查使用本插件 `offline/` 内置解析器，可在 UAssetAPI 能反序列化时重建 Blueprint 继承/组件树、UMG WidgetTree 证据、Niagara 参数和序列化属性。结果固定包含 `evidence: "serialized-package"` 与 `editable: false`。运行时值、Construction Script 改动以及 cooked/unversioned 序列化仍需其他证据佐证。
 
+`unreal_asset_inspect` 和 `unreal_asset_compare` 可传 `offlineStaging: { enabled: true, maxCachedAssets?: 64 }`。启用后，MCP 会把请求中的 `.uasset`/`.umap` 及已有的 `.uexp`、`.ubulk`、`.uptnl` companion 文件复制到隔离快照，确认复制期间源文件未变化，再解析副本。成功快照保留在滚动临时缓存中。`maxCachedAssets` 只限制缓存中保留的主 `.uasset`/`.umap` 包数量（默认 64，硬上限 512），companion 文件不占资产名额；缓存满时会自动淘汰最旧的已完成快照，然后继续复制新请求，不会因历史缓存占满而拒绝新资产。即使单次比较或批量请求中的资产数超过保留上限，也会先完整复制并解析，解析结束后才裁剪到设定数量。复制不稳定或缓存 I/O 失败会以 `OFFLINE_STAGING_FAILED` 明确失败，不会静默改读原文件或要求重启 Editor。结果的 `staging` 会报告 `used`、`sourceAssetCount`、`copiedFileCount`、`companionFileCount`、`maxCachedAssets`、`cachedAssetCount`、`evictedAssetCount`、`retention` 和 `scope`。该机制只快照请求包及 companion，不复制完整依赖图。
+
 `unreal_asset_compare` 接受 `baseAssetPath`/`targetAssetPath` 或 `baseFilePath`/`targetFilePath`。`unreal_asset_referencers` 在线使用 Asset Registry 包引用；离线要求 `targetFilePath` 和 `searchRoot`，并返回带编码信息的二进制字符串命中。
 
 `blueprint_job wait` 的 `timeoutMs` 范围为 0–600000；MCP 宿主超时为 620 秒。所有成功结果同时出现在文本与 `structuredContent.result`。失败结果位于 `structuredContent.error`，包含稳定错误码及可用的资产、operation、callsite、编译和部分失败信息。

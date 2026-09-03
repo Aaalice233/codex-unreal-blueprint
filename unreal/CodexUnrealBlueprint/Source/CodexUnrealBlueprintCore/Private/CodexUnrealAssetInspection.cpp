@@ -424,8 +424,8 @@ namespace CodexUnrealBlueprint
             if (Asset->IsA<UBlueprint>() || Asset->IsA<UWorld>())
             {
                 TArray<FString> BlueprintFacets;
-                if (Asset->IsA<UWidgetBlueprint>()) BlueprintFacets = {TEXT("asset"), TEXT("compile"), TEXT("variables"), TEXT("components"), TEXT("graphs"), TEXT("umg")};
-                else if (Asset->IsA<UAnimBlueprint>()) BlueprintFacets = {TEXT("asset"), TEXT("compile"), TEXT("variables"), TEXT("components"), TEXT("graphs"), TEXT("anim")};
+                if (Asset->IsA<UWidgetBlueprint>()) BlueprintFacets = {TEXT("asset"), TEXT("compile"), TEXT("variables"), TEXT("graphs"), TEXT("umg")};
+                else if (Asset->IsA<UAnimBlueprint>()) BlueprintFacets = {TEXT("asset"), TEXT("compile"), TEXT("variables"), TEXT("graphs"), TEXT("anim")};
                 else if (Asset->IsA<UWorld>()) BlueprintFacets = {TEXT("levelBlueprint")};
                 TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>();
                 if (!FBlueprintInspection::Inspect(Asset->GetPathName(), BlueprintFacets, 0, 500, Snapshot, OutError)) return false;
