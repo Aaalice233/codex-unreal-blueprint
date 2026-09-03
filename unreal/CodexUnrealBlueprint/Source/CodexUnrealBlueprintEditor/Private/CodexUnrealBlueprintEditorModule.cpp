@@ -26,6 +26,8 @@ namespace CodexUnrealBlueprint
         FString LastFailure;
         TWeakPtr<SBorder> StatusBorder;
         TWeakPtr<SImage> StatusImage;
+        FString DisplayedTooltip;
+        const FSlateBrush* DisplayedBrush = nullptr;
     };
 }
 
@@ -83,21 +85,36 @@ namespace
 
     void RefreshStatusWidget(const FStatusStatePtr& State)
     {
+        const FText Tooltip = GetStatusTooltip(State);
+        const FString TooltipString = Tooltip.ToString();
+        const FSlateBrush* Brush = GetStatusBrush(State);
         TSharedPtr<SBorder> StatusBorder;
         TSharedPtr<SImage> StatusImage;
+        bool bTooltipChanged = false;
+        bool bBrushChanged = false;
         {
             FScopeLock Lock(&State->Mutex);
             StatusBorder = State->StatusBorder.Pin();
             StatusImage = State->StatusImage.Pin();
+            bTooltipChanged = State->DisplayedTooltip != TooltipString;
+            bBrushChanged = State->DisplayedBrush != Brush;
+            if (bTooltipChanged)
+            {
+                State->DisplayedTooltip = TooltipString;
+            }
+            if (bBrushChanged)
+            {
+                State->DisplayedBrush = Brush;
+            }
         }
 
-        if (StatusBorder.IsValid())
+        if (bTooltipChanged && StatusBorder.IsValid())
         {
-            StatusBorder->SetToolTipText(GetStatusTooltip(State));
+            StatusBorder->SetToolTipText(Tooltip);
         }
-        if (StatusImage.IsValid())
+        if (bBrushChanged && StatusImage.IsValid())
         {
-            StatusImage->SetImage(GetStatusBrush(State));
+            StatusImage->SetImage(Brush);
         }
     }
 
@@ -117,6 +134,8 @@ namespace
             FScopeLock Lock(&State->Mutex);
             State->StatusBorder = StatusBorder;
             State->StatusImage = StatusImage;
+            State->DisplayedTooltip.Reset();
+            State->DisplayedBrush = nullptr;
         }
         RefreshStatusWidget(State);
     }
