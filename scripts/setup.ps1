@@ -174,6 +174,19 @@ function Update-PersonalMarketplace($Settings) {
     return [string]$marketplace.name
 }
 
+function Test-CodexCacheCurrent([object[]]$Files, [string]$MarketplaceName) {
+    if ($DryRun) { return $false }
+    $version = [string](Get-Content -LiteralPath "$script:Repo/package.json" -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $cacheRoot = Normalize-Path (Join-Path $env:USERPROFILE ".codex/plugins/cache/$MarketplaceName/codex-unreal-blueprint/$version")
+    if (-not (Test-Path -LiteralPath $cacheRoot -PathType Container)) { return $false }
+    foreach ($file in $Files) {
+        $cached = Resolve-ManagedPath $cacheRoot $file.path
+        if (-not (Test-Path -LiteralPath $cached -PathType Leaf)) { return $false }
+        if ((Get-FileHash -LiteralPath $cached -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) { return $false }
+    }
+    return $true
+}
+
 $settings = Get-Settings
 Assert-Prerequisites $settings
 Invoke-Checked "npm" @("run", "check")
@@ -188,5 +201,10 @@ Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
 $codexFiles = Get-SourceFiles $script:Repo @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "LICENSE", "README.md", "README.zh-CN.md")
 Sync-ManagedDirectory $settings.codexPluginTarget $codexFiles
 $marketplaceName = Update-PersonalMarketplace $settings
-Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
+if (Test-CodexCacheCurrent $codexFiles $marketplaceName) {
+    Write-Step "Codex plugin cache 已是当前版本，无需在运行中的 Codex 内重复安装。"
+}
+else {
+    Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
+}
 Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和九个 MCP tools。"
