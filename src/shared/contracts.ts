@@ -15,13 +15,6 @@ export const TOOL_NAMES = [
 
 export type ToolName = (typeof TOOL_NAMES)[number];
 
-export const CLI_COMMANDS = [
-  "setup", "doctor", "status", "search", "inspect", "capabilities",
-  "validate", "apply", "job", "verify", "plugin"
-] as const;
-
-export type CliCommand = (typeof CLI_COMMANDS)[number];
-
 const RPC_METHODS: Readonly<Record<ToolName, string>> = {
   unreal_status: "unreal.status",
   unreal_doctor: "unreal.doctor",

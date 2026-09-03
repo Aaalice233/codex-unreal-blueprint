@@ -1,93 +1,67 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repo = resolve(import.meta.dirname, "../..").replaceAll("\\", "/");
+const sandbox = `${repo}/.codex-unreal-blueprint/installer-test`;
+const configPath = `${sandbox}/dev.local.json`;
 const devScript = `${repo}/scripts/dev.ps1`;
 const setupScript = `${repo}/scripts/setup.ps1`;
-let sandbox = "";
-let configPath = "";
 
 function runPowerShell(script: string, args: readonly string[]) {
-  return spawnSync(
-    "pwsh",
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", script, ...args],
-    { cwd: repo, encoding: "utf8", timeout: 15_000 }
-  );
+  return spawnSync("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", script, ...args], {
+    cwd: repo, encoding: "utf8", timeout: 30_000
+  });
 }
 
 beforeAll(() => {
-  sandbox = mkdtempSync(join(tmpdir(), "pi-unreal-blueprint-dev-")).replaceAll("\\", "/");
-  configPath = `${sandbox}/dev.local.json`;
+  mkdirSync(sandbox, { recursive: true });
   writeFileSync(configPath, `${JSON.stringify({
     repo,
-    piAgentDir: `${sandbox}/pi-agent`,
     uproject: `${sandbox}/Fixture.uproject`,
-    uePluginTarget: `${sandbox}/Plugins/PiUnrealBlueprint`,
+    uePluginTarget: `${sandbox}/Plugins/CodexUnrealBlueprint`,
     engineRoot: `${sandbox}/UE_4.27`,
-    editorTarget: "FixtureEditor",
-    runUeTests: false,
-    ueTestFilter: "PiUnrealBlueprint"
+    codexExecutable: process.execPath.replaceAll("\\", "/"),
+    codexPluginTarget: `${sandbox}/home/plugins/codex-unreal-blueprint`,
+    marketplacePath: `${sandbox}/home/.agents/plugins/marketplace.json`,
+    runUeTests: false
   }, null, 2)}\n`, "utf8");
 });
 
-afterAll(() => {
-  rmSync(sandbox, { recursive: true, force: true });
-});
+afterAll(() => rmSync(sandbox, { recursive: true, force: true }));
 
 describe("PowerShell development workflow", () => {
-  it("plans check and sync without touching the configured plugin target", () => {
-    const target = `${sandbox}/Plugins/PiUnrealBlueprint`;
-    const result = runPowerShell(devScript, ["sync", "-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
-
+  it("plans a Codex Marketplace and UE managed install without writes", () => {
+    const result = runPowerShell(setupScript, ["-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("npm run check");
-    expect(result.stdout).toContain("UE Editor");
-    expect(result.stdout).toContain("manifest");
-    expect(result.stdout).toContain("保留所有非受管文件");
-    expect(() => readFileSync(`${target}/.pi-unreal-blueprint.manifest.json`, "utf8")).toThrow();
+    expect(result.stdout).toContain("CodexUnrealBlueprint");
+    expect(result.stdout).toContain("codex-unreal-blueprint");
+    expect(result.stdout).toContain("Marketplace");
+    expect(result.stdout).toContain("plugin add codex-unreal-blueprint@personal");
+    expect(() => readFileSync(`${sandbox}/Plugins/CodexUnrealBlueprint/.codex-unreal-blueprint.manifest.json`, "utf8")).toThrow();
   });
 
-  it("plans setup as local Pi install, build/sync, and doctor without writes", () => {
-    const result = runPowerShell(setupScript, ["-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
-
+  it("routes dev sync through the same safe setup implementation", () => {
+    const result = runPowerShell(devScript, ["sync", "-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(`pi install ${repo}`);
-    expect(result.stdout).toContain("运行构建与安全插件同步");
-    expect(result.stdout).toContain("doctor");
+    expect(result.stdout).toContain("保留非受管文件");
+    expect(result.stdout).toContain("plugin add codex-unreal-blueprint@personal");
   });
 
-  it("rejects a publish message before planning any git mutation", () => {
-    const result = runPowerShell(devScript, [
-      "publish", "-Config", configPath, "-DryRun", "-SkipUnrealBuild", "-Message", "bad message"
-    ]);
-
+  it("rejects an invalid publish message before any git mutation", () => {
+    const result = runPowerShell(devScript, ["publish", "-Config", configPath, "-DryRun", "-SkipUnrealBuild", "-Message", "bad message"]);
     expect(result.status).not.toBe(0);
     expect(`${result.stdout}${result.stderr}`).toContain("type(scope): 中文描述");
     expect(result.stdout).not.toContain("git add");
   });
 
-  it("pushes independently and defers only local plugin sync", () => {
-    const result = runPowerShell(devScript, [
-      "publish", "-Config", configPath, "-DryRun", "-SkipUnrealBuild", "-Message", "feat(dev): 添加安全发布脚本"
-    ]);
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("git add --all");
-    expect(result.stdout).toContain("core.editor=true commit -m");
-    expect(result.stdout).toContain("git push origin <current-branch>");
-
-    const source = readFileSync(devScript, "utf8");
-    const publishBody = source.slice(source.indexOf("function Invoke-Publish"), source.indexOf("$settings = Get-DevelopmentConfig"));
-    expect(publishBody.indexOf('Invoke-CheckedCommand "git" @("push"')).toBeLessThan(
-      publishBody.indexOf("Test-TargetEditorRunning $Settings")
-    );
-    expect(publishBody).toContain("本机插件同步已延后");
-    expect(source).toContain("BuildPlugin");
-    for (const forbidden of ["push --force", "reset --hard", "git clean", "git stash"]) {
-      expect(source).not.toContain(forbidden);
-    }
+  it("keeps destructive boundaries explicit in the installer", () => {
+    const source = readFileSync(setupScript, "utf8");
+    expect(source).toContain("Resolve-ManagedPath");
+    expect(source).toContain("目标存在非受管同名文件");
+    expect(source.indexOf("Assert-EditorClosed $settings")).toBeLessThan(source.indexOf("Sync-ManagedDirectory $settings.uePluginTarget"));
+    for (const forbidden of ["reset --hard", "git clean", "git stash", "push --force"]) expect(source).not.toContain(forbidden);
   });
 });

@@ -40,7 +40,7 @@ export function defaultSessionsDirectory(environment: NodeJS.ProcessEnv = proces
       "LOCALAPPDATA is not set; cannot discover Unreal Editor sessions"
     );
   }
-  return win32.join(localAppData, "PiUnrealBlueprint", "sessions");
+  return win32.join(localAppData, "CodexUnrealBlueprint", "sessions");
 }
 
 export function canonicalizeUproject(path: string): string {
@@ -59,7 +59,7 @@ function processIsAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    // Windows reports EPERM for nonexistent PIDs; Pi and UE run as the same user, so it is not a usable liveness signal there.
+    // Windows reports EPERM for nonexistent PIDs; Codex and UE run as the same user, so it is not a usable liveness signal there.
     return process.platform !== "win32" && isNodeError(error) && error.code === "EPERM";
   }
 }
@@ -199,7 +199,7 @@ export async function selectSession(query: SessionQuery = {}, options: Discovery
     const target = query.uproject === undefined ? "the requested project" : query.uproject;
     throw new UnrealBlueprintError(
       ERROR_CODES.SESSION_NOT_FOUND,
-      `No running UE4.27 Editor session was found for ${target}. Open the project with PiUnrealBlueprint enabled.`,
+      `No running UE4.27 Editor session was found for ${target}. Open the project with CodexUnrealBlueprint enabled.`,
       { retryable: true }
     );
   }

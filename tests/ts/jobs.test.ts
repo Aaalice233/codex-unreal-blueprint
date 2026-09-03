@@ -44,7 +44,7 @@ describe("job client", () => {
           const action = request.params?.action;
           if (request.method === "blueprint.request") {
             socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: action === "status" ? {
-              healthy: true, directory: "E:/Saved/PiUnrealBlueprint", recordCount: 1, accepted: 0, running: 0, terminal: 1
+              healthy: true, directory: "E:/Saved/CodexUnrealBlueprint", recordCount: 1, accepted: 0, running: 0, terminal: 1
             } : {
               version: 1, requestId: "request-1", method: "blueprint.apply", paramsHash: "abc", jobId: "job-1",
               state: "terminal", acceptedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:01Z",

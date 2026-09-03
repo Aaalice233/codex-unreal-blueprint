@@ -20,10 +20,9 @@
     "noEmit": true
   },
   "include": [
-    "extensions/**/*.ts",
     "src/**/*.ts",
     "tests/ts/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["src/cli/dist", "node_modules"]
+  "exclude": ["dist", "node_modules"]
 }

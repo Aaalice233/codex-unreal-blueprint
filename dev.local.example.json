@@ -1,10 +1,12 @@
 {
-  "repo": "E:/pi-unreal-blueprint",
-  "piAgentDir": "C:/Users/Admin/.pi/agent",
+  "repo": "E:/codex-unreal-blueprint",
   "uproject": "E:/Master/LuaSocial.uproject",
   "installScope": "project",
   "engineRoot": "E:/UE_4.27",
   "editorTarget": "LuaSocialEditor",
   "runUeTests": false,
-  "ueTestFilter": "PiUnrealBlueprint"
+  "ueTestFilter": "CodexUnrealBlueprint",
+  "codexExecutable": "C:/path/to/codex.exe",
+  "codexPluginTarget": "C:/Users/you/plugins/codex-unreal-blueprint",
+  "marketplacePath": "C:/Users/you/.agents/plugins/marketplace.json"
 }

@@ -1,0 +1,36 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "FriendlyName": "Codex Unreal Blueprint",
+  "Description": "UE4.27 Editor-only Blueprint automation bridge for Codex.",
+  "Category": "Editor",
+  "CreatedBy": "Aaalice233",
+  "CanContainContent": false,
+  "IsBetaVersion": false,
+  "Installed": false,
+  "EnabledByDefault": false,
+  "EngineVersion": "4.27.0",
+  "Modules": [
+    {
+      "Name": "CodexUnrealBlueprintCore",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    },
+    {
+      "Name": "CodexUnrealBlueprintTransport",
+      "Type": "EditorNoCommandlet",
+      "LoadingPhase": "PostEngineInit"
+    },
+    {
+      "Name": "CodexUnrealBlueprintEditor",
+      "Type": "EditorNoCommandlet",
+      "LoadingPhase": "PostEngineInit"
+    },
+    {
+      "Name": "CodexUnrealBlueprintTests",
+      "Type": "EditorNoCommandlet",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ]
+}

@@ -5,9 +5,6 @@ export default defineConfig({
     include: ["tests/ts/**/*.test.ts"],
     environment: "node",
     testTimeout: 5_000,
-    coverage: {
-      include: ["src/**/*.ts"],
-      exclude: ["src/cli/index.ts"]
-    }
+    coverage: { include: ["src/**/*.ts"] }
   }
 });

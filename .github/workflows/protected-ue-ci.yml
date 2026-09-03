@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           trusted=false
-          if [[ "${GITHUB_REPOSITORY}" == "Aaalice233/pi-unreal-blueprint" ]] && \
+          if [[ "${GITHUB_REPOSITORY}" == "Aaalice233/codex-unreal-blueprint" ]] && \
              { [[ "${GITHUB_REF}" == "refs/heads/main" ]] || [[ "${GITHUB_REF}" == refs/tags/v* ]]; }; then
             trusted=true
           fi
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 180
     env:
       UE_4_27_ROOT: ${{ vars.UE_4_27_ROOT }}
-      PI_UNREAL_UPROJECT: ${{ vars.PI_UNREAL_UPROJECT }}
+      CODEX_UNREAL_UPROJECT: ${{ vars.CODEX_UNREAL_UPROJECT }}
     steps:
       - name: Checkout trusted commit
         uses: actions/checkout@v4
@@ -59,28 +59,28 @@ jobs:
           $required = @(
             'package.json',
             'scripts/dev.ps1',
-            'unreal/PiUnrealBlueprint/PiUnrealBlueprint.uplugin'
+            'unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin'
           )
           $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
           if ($missing.Count -gt 0) {
             throw "UE CI is intentionally blocked until implementation exists: $($missing -join ', ')"
           }
           if (-not $env:UE_4_27_ROOT) { throw 'UE_4_27_ROOT repository variable is required.' }
-          if (-not $env:PI_UNREAL_UPROJECT) {
-            $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
+          if (-not $env:CODEX_UNREAL_UPROJECT) {
+            $env:CODEX_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
           }
-          if (-not (Test-Path -LiteralPath $env:PI_UNREAL_UPROJECT)) {
-            throw "Configured test project does not exist: $env:PI_UNREAL_UPROJECT"
+          if (-not (Test-Path -LiteralPath $env:CODEX_UNREAL_UPROJECT)) {
+            throw "Configured test project does not exist: $env:CODEX_UNREAL_UPROJECT"
           }
 
       - name: Run trusted full checks
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:PI_UNREAL_UPROJECT) {
-            $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
+          if (-not $env:CODEX_UNREAL_UPROJECT) {
+            $env:CODEX_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
           }
           ./scripts/dev.ps1 check `
-            -UProject $env:PI_UNREAL_UPROJECT `
+            -UProject $env:CODEX_UNREAL_UPROJECT `
             -EngineRoot $env:UE_4_27_ROOT `
             -RunUnrealTests

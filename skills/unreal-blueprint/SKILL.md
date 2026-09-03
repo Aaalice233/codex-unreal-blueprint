@@ -1,8 +1,9 @@
 ---
 name: unreal-blueprint
-description: Inspect, validate, apply, monitor, and verify UE4.27 Blueprint changes through the PiUnrealBlueprint Editor plugin. Use for Blueprint assets, graphs, components, variables, UMG, AnimBlueprint, structs, enums, interfaces, and Blueprint libraries.
+description: Inspect, validate, apply, monitor, and verify UE4.27 Blueprint changes through the CodexUnrealBlueprint Editor plugin. Use for Blueprint assets, graphs, components, variables, UMG, AnimBlueprint, structs, enums, interfaces, and Blueprint libraries.
 license: MIT
-compatibility: Requires Windows, UE4.27, and either a running Editor with PiUnrealBlueprint or the headless Commandlet.
+metadata:
+  compatibility: Requires Windows, UE4.27, Codex, and a running Editor with CodexUnrealBlueprint enabled.
 ---
 
 # Unreal Blueprint
@@ -17,6 +18,6 @@ Use the nine package tools instead of editing `.uasset` files directly.
 6. Use `blueprint_job` to query or wait. Cancel only when the reported phase is cancellation-safe. If the connection becomes uncertain, query the same `requestId`; never replay the write.
 7. Finish with `blueprint_verify` using explicit asset paths and structural expectations.
 
-A success claim requires the real plugin/Commandlet result. Unknown operations or fields, ambiguous references, dirty packages, source-control rejection, protocol mismatch, missing Editor sessions, compile failures, and reload mismatches must remain explicit failures.
+A success claim requires the real Editor plugin result. Unknown operations or fields, ambiguous references, dirty packages, source-control rejection, protocol mismatch, missing Editor sessions, compile failures, and reload mismatches must remain explicit failures.
 
 If a failure reports `partial` or `stateUnknown`, return the exact `modified`, `saved`, `notSaved`, and `unknown` asset lists plus the plugin's Git/SVN inspection guidance. The package does not provide history, restore, package copies, or automatic source-control revert. The user decides whether to restore listed assets manually.

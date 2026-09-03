@@ -34,7 +34,7 @@ import {
         data: {
           stableCode: "BLUEPRINT_COMPILE_FAILED",
           retryable: false,
-          assetPath: "/Game/PiAutomation/Run/BP_Test",
+          assetPath: "/Game/CodexAutomation/Run/BP_Test",
           operationIndex: 2,
           ueCallsite: "FKismetEditorUtilities::CompileBlueprint",
           compilerMessages: [{ severity: "Error", message: "Missing pin" }]

@@ -1,0 +1,29 @@
+{
+  "name": "codex-unreal-blueprint",
+  "version": "1.0.0",
+  "description": "Local UE4.27 Blueprint inspection and transactional automation for Codex.",
+  "author": {
+    "name": "Aaalice233",
+    "url": "https://github.com/Aaalice233"
+  },
+  "homepage": "https://github.com/Aaalice233/codex-unreal-blueprint",
+  "repository": "https://github.com/Aaalice233/codex-unreal-blueprint",
+  "license": "MIT",
+  "keywords": ["unreal-engine", "blueprint", "ue4", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex Unreal Blueprint",
+    "shortDescription": "Inspect and automate UE4.27 Blueprints locally.",
+    "longDescription": "Connect Codex to a local UE4.27 Editor for schema-driven Blueprint inspection, validation, transactional writes, jobs, and disk verification.",
+    "developerName": "Aaalice233",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/Aaalice233/codex-unreal-blueprint",
+    "defaultPrompt": [
+      "Check my UE4.27 Blueprint automation connection.",
+      "Inspect a Blueprint before proposing changes.",
+      "Validate and apply this Blueprint change safely."
+    ]
+  }
+}

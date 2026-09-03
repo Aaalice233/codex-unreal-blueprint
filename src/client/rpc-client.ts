@@ -98,7 +98,7 @@ export class RpcClient {
         editorSessionId: session.editorSessionId,
         authToken: session.authToken,
         protocolVersion: CLIENT_PROTOCOL_VERSION,
-        client: "pi-unreal-blueprint"
+        client: "codex-unreal-blueprint"
       });
       if (!isJsonObject(result) || result.authenticated !== true) {
         throw new UnrealBlueprintError(ERROR_CODES.AUTHENTICATION_FAILED, "Editor rejected session authentication", {

@@ -2,7 +2,7 @@
 
 ## English
 
-Thank you for helping build `pi-unreal-blueprint`. The project is pre-v1 and follows `PLAN.md` as the authoritative product and completion specification.
+Thank you for helping build `codex-unreal-blueprint`. The project is pre-v1 and follows `PLAN.md` as the authoritative product and completion specification.
 
 ### Before opening a change
 
@@ -13,7 +13,7 @@ Thank you for helping build `pi-unreal-blueprint`. The project is pre-v1 and fol
 
 ### Engineering requirements
 
-- Pi Extension, CLI, Editor, and Commandlet must share one UE Core and Operation Registry.
+- MCP and the Editor transport must share one UE Core and Operation Registry.
 - Unknown operations/fields, incompatible types, ambiguity, and failures must return explicit stable errors; no mock success or silent fallback.
 - A write is incomplete until preflight, transaction, compile, save, reload, verification, Journal, partial-failure reporting, and applicable manual-recovery guidance tests pass. Do not add package backups or automatic Git/SVN restore.
 - Keep public Fork code on GitHub-hosted runners. Changes that route `pull_request` code to self-hosted infrastructure will not be accepted.
@@ -29,7 +29,7 @@ A PR may merge before all v1 capabilities exist, but it must not weaken the [v1 
 
 ## 简体中文
 
-感谢参与 `pi-unreal-blueprint`。项目当前处于 v1 之前，`PLAN.md` 是产品范围和完成标准的权威依据。
+感谢参与 `codex-unreal-blueprint`。项目当前处于 v1 之前，`PLAN.md` 是产品范围和完成标准的权威依据。
 
 ### 修改前
 
@@ -40,7 +40,7 @@ A PR may merge before all v1 capabilities exist, but it must not weaken the [v1 
 
 ### 工程要求
 
-- Pi Extension、CLI、Editor 和 Commandlet 共用一套 UE Core 和 Operation Registry。
+- MCP 与 Editor Transport 共用一套 UE Core 和 Operation Registry。
 - 未知操作/字段、类型不匹配、目标歧义和失败必须返回明确稳定错误；禁止模拟成功和静默降级。
 - 预检、事务、编译、保存、重载、验证、Journal、部分失败报告及手工还原指引测试未完成前，写能力不算完成。禁止增加 Package 备份或自动 Git/SVN 还原。
 - 公开 Fork 代码只能在 GitHub-hosted Runner 运行。任何让 `pull_request` 触达 self-hosted 基础设施的修改都不会接受。

@@ -6,17 +6,17 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
-No unreleased changes are recorded. / 暂无未发布变更。
+Migrated the product to a Codex plugin with a bundled stdio MCP server and fully renamed UE plugin. / 已迁移为包含 stdio MCP server 的 Codex plugin，并完整重命名 UE plugin。
 
 ## [1.0.0]
 
 ### Setup and development / 安装与开发
 
-- Added project-level installation as the default at `<Project>/Plugins/PiUnrealBlueprint`.
-- Added optional engine-level installation at `<EngineRoot>/Engine/Plugins/Developer/PiUnrealBlueprint`.
+- Added project-level installation as the default at `<Project>/Plugins/CodexUnrealBlueprint`.
+- Added optional engine-level installation at `<EngineRoot>/Engine/Plugins/Developer/CodexUnrealBlueprint`.
 - Added prerequisite, managed-file hash, and installation doctor checks plus the guarded `dev.ps1` check/sync/publish flow.
-- 默认支持安装到 `<Project>/Plugins/PiUnrealBlueprint` 的项目级安装。
-- 可选支持安装到 `<EngineRoot>/Engine/Plugins/Developer/PiUnrealBlueprint` 的引擎级安装。
+- 默认支持安装到 `<Project>/Plugins/CodexUnrealBlueprint` 的项目级安装。
+- 可选支持安装到 `<EngineRoot>/Engine/Plugins/Developer/CodexUnrealBlueprint` 的引擎级安装。
 - 增加前置环境、受管文件哈希和安装 doctor 检查，以及受保护的 `dev.ps1` check/sync/publish 流程。
 
 ### Safety and documentation / 安全与文档
@@ -32,7 +32,7 @@ No unreleased changes are recorded. / 暂无未发布变更。
 
 - Isolated public Fork PR checks on GitHub-hosted runners with read-only permissions and no secrets.
 - Added protected self-hosted UE4.27 compile/E2E checks for trusted refs only.
-- Added the approved `v1.0.0` release flow for UE4.27 Win64 plugin zip, npm package, `SHA256SUMS.txt`, and changelog-based release notes, with cross-file version validation.
+- Added the approved `v1.0.0` release flow for UE4.27 Win64 and Codex plugin zip assets, `SHA256SUMS.txt`, and changelog-based release notes, with cross-file version validation.
 - 公开 Fork PR 只在 GitHub-hosted Runner 使用只读权限运行，不接触 secret。
 - 受保护 self-hosted UE4.27 编译/E2E 只运行可信 ref。
-- 增加经审批的 `v1.0.0` Release 流程，生成 UE4.27 Win64 插件 zip、npm 包、`SHA256SUMS.txt` 和 CHANGELOG Release notes，并校验跨文件版本一致性。
+- 增加经审批的 `v1.0.0` Release 流程，生成 UE4.27 Win64 与 Codex plugin zip、`SHA256SUMS.txt` 和 CHANGELOG Release notes，并校验跨文件版本一致性。

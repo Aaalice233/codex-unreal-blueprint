@@ -36,7 +36,7 @@ jobs:
               "Docs/product-scope.md", "Docs/product-scope.zh-CN.md",
               "Docs/architecture.md", "Docs/architecture.zh-CN.md",
               "Docs/ci-and-release.md", "Docs/ci-and-release.zh-CN.md",
-              "Docs/cli-reference.md", "Docs/cli-reference.zh-CN.md",
+              "Docs/mcp-reference.md", "Docs/mcp-reference.zh-CN.md",
               "Docs/setup.md", "Docs/setup.zh-CN.md",
               "Docs/source-control-recovery.md", "Docs/source-control-recovery.zh-CN.md",
               "Docs/v1-release-gate.md", "Docs/v1-release-gate.zh-CN.md",

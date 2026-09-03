@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "codex-unreal-blueprint": {
+      "command": "node",
+      "args": ["dist/mcp/index.js"],
+      "cwd": ".",
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 620
+    }
+  }
+}

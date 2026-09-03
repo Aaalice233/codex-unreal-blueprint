@@ -4,7 +4,7 @@
 
 ## 产品边界
 
-`pi-unreal-blueprint` **不会**复制或备份 Unreal Package，也**不会**自动执行 Git/SVN 还原命令。`FScopedTransaction` 只能撤销保存前的 Editor 内存修改；它不是磁盘备份，无法恢复崩溃或部分保存。
+`codex-unreal-blueprint` **不会**复制或备份 Unreal Package，也**不会**自动执行 Git/SVN 还原命令。`FScopedTransaction` 只能撤销保存前的 Editor 内存修改；它不是磁盘备份，无法恢复崩溃或部分保存。
 
 发生部分保存、Editor 崩溃或连接状态不明时，Job 结果和本机 Journal 会把每个受影响 Package 标成 `modified`、`saved`、`notSaved` 或 `unknown`，并记录 operation 索引、阶段和最后确认哈希。结果必须是 `partial` 或 `stateUnknown`，不能冒充成功。
 
@@ -52,6 +52,6 @@ svn revert Content/UI/WBP_Menu.uasset
 ## 手工还原后
 
 1. 重启或重新加载受影响 Package/Editor，使内存状态与磁盘一致。
-2. 对准确资产清单运行 `pi-unreal-blueprint inspect` 和 `verify`。
+2. 对准确资产清单运行 `codex-unreal-blueprint inspect` 和 `verify`。
 3. 再次检查 Git/SVN 状态，确认只保留预期改动。
 4. 在资产清单和哈希核对完成前保留 Job Journal；Journal 只是审计元数据，不是备份。

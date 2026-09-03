@@ -112,7 +112,7 @@ describe("Editor session discovery", () => {
 
   it("uses the Windows LOCALAPPDATA session directory on every host", () => {
     expect(defaultSessionsDirectory({ LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local" }))
-      .toBe("C:\\Users\\Alice\\AppData\\Local\\PiUnrealBlueprint\\sessions");
+      .toBe("C:\\Users\\Alice\\AppData\\Local\\CodexUnrealBlueprint\\sessions");
   });
 
   it("rejects relative and non-uproject paths instead of resolving them against cwd", () => {

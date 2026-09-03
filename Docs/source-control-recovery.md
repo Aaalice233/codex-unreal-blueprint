@@ -4,7 +4,7 @@
 
 ## Product boundary
 
-`pi-unreal-blueprint` does **not** copy or back up Unreal packages and does **not** automatically run Git/SVN restore commands. `FScopedTransaction` can undo an in-memory failure before save; it is not a disk backup and cannot recover a crash or partial save.
+`codex-unreal-blueprint` does **not** copy or back up Unreal packages and does **not** automatically run Git/SVN restore commands. `FScopedTransaction` can undo an in-memory failure before save; it is not a disk backup and cannot recover a crash or partial save.
 
 For a partial save, Editor crash, or unknown connection state, the Job result and local Journal identify each affected package as `modified`, `saved`, `notSaved`, or `unknown`, together with the operation index, phase, and last confirmed hash. The tool reports `partial` or `stateUnknown`; it must not claim success.
 
@@ -52,6 +52,6 @@ For added files, inspect the scheduled state before using `svn revert` or deleti
 ## After manual recovery
 
 1. Restart/reload the affected package or Editor so memory matches disk.
-2. Run `pi-unreal-blueprint inspect` and `verify` against the exact asset set.
+2. Run `codex-unreal-blueprint inspect` and `verify` against the exact asset set.
 3. Run Git/SVN status again and confirm only intended changes remain.
 4. Keep the Job Journal until the asset list and hashes are reconciled; the Journal is audit metadata, not a backup.
