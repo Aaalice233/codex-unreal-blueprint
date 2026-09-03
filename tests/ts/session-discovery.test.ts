@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 async function fixture(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "pi-ubp-sessions-"));
+  const directory = await mkdtemp(join(tmpdir(), "codex-ubp-sessions-"));
   cleanup.push(directory);
   return directory;
 }

@@ -62,7 +62,7 @@ describe("job client", () => {
     await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("missing port");
-    directory = await mkdtemp(join(tmpdir(), "pi-ubp-job-"));
+    directory = await mkdtemp(join(tmpdir(), "codex-ubp-job-"));
     await writeFile(join(directory, "session.json"), JSON.stringify({
       editorSessionId: "jobs", pid: process.pid, uproject: "E:/Fixture.uproject", engineVersion: "4.27.2",
       host: "127.0.0.1", port: address.port, authToken: "token", pluginVersion: "0.1.0",
@@ -110,7 +110,7 @@ describe("job client", () => {
     await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("missing port");
-    directory = await mkdtemp(join(tmpdir(), "pi-ubp-recovery-"));
+    directory = await mkdtemp(join(tmpdir(), "codex-ubp-recovery-"));
     await writeFile(join(directory, "session.json"), JSON.stringify({
       editorSessionId: "recovery", pid: process.pid, uproject: "E:/Fixture.uproject", engineVersion: "4.27.2",
       host: "127.0.0.1", port: address.port, authToken: "token", pluginVersion: "0.1.0",

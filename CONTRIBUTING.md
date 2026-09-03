@@ -6,7 +6,7 @@ Thank you for helping build `codex-unreal-blueprint`. The project is pre-v1 and 
 
 ### Before opening a change
 
-1. Read `AGENTS.md`, `PLAN.md`, the [product scope](Docs/product-scope.md), and [architecture](Docs/architecture.md).
+1. Read `AGENTS.md`, the authoritative `PLAN.md`, and the [architecture](Docs/architecture.md).
 2. Keep v1 limited to UE4.27 Win64 and the Blueprint system. Propose unrelated domains separately; do not silently expand scope.
 3. Open an issue before changing a public protocol, Operation Registry contract, write/failure-reporting invariant, or release trust boundary.
 4. Never describe planned behavior as implemented. Update both English and Chinese user-facing documentation when behavior changes.
@@ -33,7 +33,7 @@ A PR may merge before all v1 capabilities exist, but it must not weaken the [v1 
 
 ### 修改前
 
-1. 阅读 `AGENTS.md`、`PLAN.md`、[产品范围](Docs/product-scope.zh-CN.md) 和 [架构](Docs/architecture.zh-CN.md)。
+1. 阅读 `AGENTS.md`、作为唯一权威依据的 `PLAN.md` 和[架构](Docs/architecture.zh-CN.md)。
 2. v1 只覆盖 UE4.27 Win64 和 Blueprint 体系。无关领域单独提案，不得暗中扩范围。
 3. 修改公共协议、Operation Registry 契约、写入/失败报告不变量或发布信任边界前，先开 Issue 讨论。
 4. 不得把计划能力写成已经实现。面向用户的行为变化必须同步更新中英文文档。

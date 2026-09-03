@@ -96,7 +96,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $required = @(
             'package.json',
-            'scripts/dev.ps1',
+            'scripts/check.ps1',
             'unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin'
           )
           $missing = $required | Where-Object { -not (Test-Path -LiteralPath $_) }
@@ -124,7 +124,7 @@ jobs:
           if (-not $env:CODEX_UNREAL_UPROJECT) { $env:CODEX_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject' }
           npm ci --ignore-scripts
           ./scripts/verify-release.ps1 -Version $env:RELEASE_VERSION
-          ./scripts/dev.ps1 check `
+          ./scripts/check.ps1 `
             -UProject $env:CODEX_UNREAL_UPROJECT `
             -EngineRoot $env:UE_4_27_ROOT `
             -RunUnrealTests

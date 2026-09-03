@@ -32,10 +32,8 @@ jobs:
 
           required = [
               "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
-              "SECURITY.md", "CHANGELOG.md",
-              "Docs/product-scope.md", "Docs/product-scope.zh-CN.md",
+              "SECURITY.md", "CHANGELOG.md", "PLAN.md",
               "Docs/architecture.md", "Docs/architecture.zh-CN.md",
-              "Docs/ci-and-release.md", "Docs/ci-and-release.zh-CN.md",
               "Docs/mcp-reference.md", "Docs/mcp-reference.zh-CN.md",
               "Docs/setup.md", "Docs/setup.zh-CN.md",
               "Docs/source-control-recovery.md", "Docs/source-control-recovery.zh-CN.md",

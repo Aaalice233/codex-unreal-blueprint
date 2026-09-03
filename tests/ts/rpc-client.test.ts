@@ -161,7 +161,7 @@ describe("RPC client", () => {
   });
 
   it("refuses two live Editors until an explicit session is selected", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "pi-ubp-live-editors-"));
+    const directory = await mkdtemp(join(tmpdir(), "codex-ubp-live-editors-"));
     const editors = [createServer(handleSocket), createServer(handleSocket)];
     let selected: UnrealClient | undefined;
     try {

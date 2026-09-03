@@ -144,9 +144,9 @@ namespace CodexUnrealBlueprint
         "CodexUnrealBlueprint.Transport.RealTcpAuthenticationAndRpc",
         EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-    DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FPollPiTransportRpc, TSharedPtr<FTransportAutomationFixture>, Fixture, FAutomationTestBase*, Test);
+    DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FPollCodexTransportRpc, TSharedPtr<FTransportAutomationFixture>, Fixture, FAutomationTestBase*, Test);
 
-    bool FPollPiTransportRpc::Update()
+    bool FPollCodexTransportRpc::Update()
     {
         FString Json;
         FString Error;
@@ -274,7 +274,7 @@ namespace CodexUnrealBlueprint
             return false;
         }
         Fixture->Deadline = FPlatformTime::Seconds() + 5.0;
-        ADD_LATENT_AUTOMATION_COMMAND(FPollPiTransportRpc(Fixture, this));
+        ADD_LATENT_AUTOMATION_COMMAND(FPollCodexTransportRpc(Fixture, this));
         return true;
     }
 

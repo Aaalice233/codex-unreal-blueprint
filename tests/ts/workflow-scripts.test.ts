@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const repo = resolve(import.meta.dirname, "../..").replaceAll("\\", "/");
 const sandbox = `${repo}/.codex-unreal-blueprint/installer-test`;
 const configPath = `${sandbox}/dev.local.json`;
-const devScript = `${repo}/scripts/dev.ps1`;
+const checkScript = `${repo}/scripts/check.ps1`;
 const setupScript = `${repo}/scripts/setup.ps1`;
 
 function runPowerShell(script: string, args: readonly string[]) {
@@ -43,18 +43,11 @@ describe("PowerShell development workflow", () => {
     expect(() => readFileSync(`${sandbox}/Plugins/CodexUnrealBlueprint/.codex-unreal-blueprint.manifest.json`, "utf8")).toThrow();
   });
 
-  it("routes dev sync through the same safe setup implementation", () => {
-    const result = runPowerShell(devScript, ["sync", "-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
+  it("plans the shared TypeScript check without running a UE build", () => {
+    const result = runPowerShell(checkScript, ["-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("保留非受管文件");
-    expect(result.stdout).toContain("plugin add codex-unreal-blueprint@personal");
-  });
-
-  it("rejects an invalid publish message before any git mutation", () => {
-    const result = runPowerShell(devScript, ["publish", "-Config", configPath, "-DryRun", "-SkipUnrealBuild", "-Message", "bad message"]);
-    expect(result.status).not.toBe(0);
-    expect(`${result.stdout}${result.stderr}`).toContain("type(scope): 中文描述");
-    expect(result.stdout).not.toContain("git add");
+    expect(result.stdout).toContain("DRY-RUN: npm run check");
+    expect(result.stdout).not.toContain("RunUAT.bat");
   });
 
   it("keeps destructive boundaries explicit in the installer", () => {

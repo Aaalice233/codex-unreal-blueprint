@@ -1,13 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Position = 0)][ValidateSet("setup", "check", "sync", "publish")][string]$Action = "check",
-    [string]$Message,
     [string]$Config,
-    [ValidateSet("project", "engine")][string]$Scope,
     [string]$UProject,
     [string]$EngineRoot,
-    [string]$PluginTarget,
-    [string]$CodexExecutable,
     [switch]$DryRun,
     [switch]$SkipUnrealBuild,
     [switch]$RunUnrealTests
@@ -46,29 +41,5 @@ function Invoke-UnrealBuildAndTests {
     }
 }
 
-function Invoke-Setup {
-    $parameters = @{ DryRun = $DryRun; SkipUnrealBuild = $SkipUnrealBuild }
-    if ($Config) { $parameters.Config = $Config }
-    if ($Scope) { $parameters.Scope = $Scope }
-    if ($UProject) { $parameters.UProject = $UProject }
-    if ($EngineRoot) { $parameters.EngineRoot = $EngineRoot }
-    if ($PluginTarget) { $parameters.PluginTarget = $PluginTarget }
-    if ($CodexExecutable) { $parameters.CodexExecutable = $CodexExecutable }
-    & "$PSScriptRoot/setup.ps1" @parameters
-    if (-not $?) { throw "setup.ps1 执行失败。" }
-}
-
-switch ($Action) {
-    "setup" { Invoke-Setup }
-    "sync" { Invoke-Setup }
-    "check" { Invoke-Checked "npm" @("run", "check"); Invoke-UnrealBuildAndTests }
-    "publish" {
-        if ([string]::IsNullOrWhiteSpace($Message) -or $Message.Length -gt 72 -or $Message -notmatch "^(feat|fix|refactor|perf|style|docs|test|chore)(\([A-Za-z0-9._/-]+\))?: .*[\u4e00-\u9fff].*$") { throw "publish 需要不超过 72 字的 type(scope): 中文描述。" }
-        Invoke-Checked "npm" @("run", "check")
-        Invoke-UnrealBuildAndTests
-        Invoke-Checked "git" @("add", "--all")
-        Invoke-Checked "git" @("-c", "core.editor=true", "commit", "-m", $Message)
-        $branch = if ($DryRun) { "main" } else { (& git -C $repo branch --show-current).Trim() }
-        Invoke-Checked "git" @("push", "origin", $branch)
-    }
-}
+Invoke-Checked "npm" @("run", "check")
+Invoke-UnrealBuildAndTests

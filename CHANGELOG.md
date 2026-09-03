@@ -8,16 +8,18 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 Migrated the product to a Codex plugin with a bundled stdio MCP server and fully renamed UE plugin. / 已迁移为包含 stdio MCP server 的 Codex plugin，并完整重命名 UE plugin。
 
+- Removed duplicate planning/release documents, stale Pi-era internal identifiers, and unused development-script branches; the remaining build-and-test helper is now `check.ps1`. / 删除重复的规划与发布文档、遗留 Pi 内部标识和未使用的开发脚本分支；保留的构建测试脚本更名为 `check.ps1`。
+
 ## [1.0.0]
 
 ### Setup and development / 安装与开发
 
 - Added project-level installation as the default at `<Project>/Plugins/CodexUnrealBlueprint`.
 - Added optional engine-level installation at `<EngineRoot>/Engine/Plugins/Developer/CodexUnrealBlueprint`.
-- Added prerequisite, managed-file hash, and installation doctor checks plus the guarded `dev.ps1` check/sync/publish flow.
+- Added prerequisite, managed-file hash, and installation doctor checks plus the guarded `check.ps1` build-and-test flow.
 - 默认支持安装到 `<Project>/Plugins/CodexUnrealBlueprint` 的项目级安装。
 - 可选支持安装到 `<EngineRoot>/Engine/Plugins/Developer/CodexUnrealBlueprint` 的引擎级安装。
-- 增加前置环境、受管文件哈希和安装 doctor 检查，以及受保护的 `dev.ps1` check/sync/publish 流程。
+- 增加前置环境、受管文件哈希和安装 doctor 检查，以及受保护的 `check.ps1` 构建与测试流程。
 
 ### Safety and documentation / 安全与文档
 

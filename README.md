@@ -30,6 +30,6 @@ npm install
 npm run check
 ```
 
-See [setup](Docs/setup.md), [architecture](Docs/architecture.md), [MCP tools](Docs/mcp-reference.md), [product scope](Docs/product-scope.md), [source-control recovery](Docs/source-control-recovery.md), and the [release gate](Docs/v1-release-gate.md).
+See the authoritative [product plan](PLAN.md), [setup](Docs/setup.md), [architecture](Docs/architecture.md), [MCP tools](Docs/mcp-reference.md), [source-control recovery](Docs/source-control-recovery.md), and the [release gate](Docs/v1-release-gate.md).
 
 中文：[README.zh-CN.md](README.zh-CN.md)

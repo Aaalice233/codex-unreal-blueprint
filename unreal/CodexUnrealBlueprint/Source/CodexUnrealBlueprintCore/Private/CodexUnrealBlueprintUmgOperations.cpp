@@ -39,19 +39,19 @@ namespace CodexUnrealBlueprint
 {
     namespace
     {
-        FString PiUmgAssetPath(const UWidgetBlueprint* Blueprint)
+        FString CodexUmgAssetPath(const UWidgetBlueprint* Blueprint)
         {
             return Blueprint ? Blueprint->GetPathName() : FString();
         }
 
-        FUmgOperationError PiUmgError(const FString& Code, const FString& Message, const UWidgetBlueprint* Blueprint,
+        FUmgOperationError CodexUmgError(const FString& Code, const FString& Message, const UWidgetBlueprint* Blueprint,
             const FString& Callsite, const int32 OperationIndex, const FString& WidgetPath = FString(),
             const FString& AnimationName = FString(), const TArray<FString>& Details = TArray<FString>())
         {
             FUmgOperationError Result;
             Result.Code = Code;
             Result.Message = Message;
-            Result.AssetPath = PiUmgAssetPath(Blueprint);
+            Result.AssetPath = CodexUmgAssetPath(Blueprint);
             Result.WidgetPath = WidgetPath;
             Result.AnimationName = AnimationName;
             Result.UECallsite = Callsite;
@@ -60,26 +60,26 @@ namespace CodexUnrealBlueprint
             return Result;
         }
 
-        bool PiUmgRequireString(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, FString& Out,
+        bool CodexUmgRequireString(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, FString& Out,
             FUmgOperationError& OutError, UWidgetBlueprint* Blueprint, int32 Index, const FString& Callsite)
         {
             if (!Json->TryGetStringField(Field, Out) || Out.TrimStartAndEnd().IsEmpty())
             {
-                OutError = PiUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' must be a non-empty string."), Field),
+                OutError = CodexUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' must be a non-empty string."), Field),
                     Blueprint, Callsite, Index);
                 return false;
             }
             return true;
         }
 
-        bool PiUmgRequireInteger(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, int32& Out,
+        bool CodexUmgRequireInteger(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, int32& Out,
             FUmgOperationError& OutError, UWidgetBlueprint* Blueprint, int32 Index, const FString& Callsite)
         {
             double Number = 0.0;
             if (!Json->TryGetNumberField(Field, Number) || Number != FMath::RoundToDouble(Number)
                 || Number < static_cast<double>(MIN_int32) || Number > static_cast<double>(MAX_int32))
             {
-                OutError = PiUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' must be an int32."), Field),
+                OutError = CodexUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' must be an int32."), Field),
                     Blueprint, Callsite, Index);
                 return false;
             }
@@ -87,47 +87,47 @@ namespace CodexUnrealBlueprint
             return true;
         }
 
-        bool PiUmgRequireValue(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, TSharedPtr<FJsonValue>& Out,
+        bool CodexUmgRequireValue(const TSharedRef<FJsonObject>& Json, const TCHAR* Field, TSharedPtr<FJsonValue>& Out,
             FUmgOperationError& OutError, UWidgetBlueprint* Blueprint, int32 Index, const FString& Callsite)
         {
             Out = Json->TryGetField(Field);
             if (!Out.IsValid())
             {
-                OutError = PiUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' is required."), Field),
+                OutError = CodexUmgError(TEXT("UmgInvalidArgument"), FString::Printf(TEXT("'%s' is required."), Field),
                     Blueprint, Callsite, Index);
                 return false;
             }
             return true;
         }
 
-        bool PiUmgModifyObject(FWriteMutationContext& Context, UObject* Object, FWritePipelineError& ModifyError,
+        bool CodexUmgModifyObject(FWriteMutationContext& Context, UObject* Object, FWritePipelineError& ModifyError,
             FUmgOperationError& OutError, UWidgetBlueprint* Blueprint, const int32 Index,
             const FString& WidgetPath = FString(), const FString& AnimationName = FString())
         {
             if (Context.Modify(Object, ModifyError)) return true;
-            OutError = PiUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite,
+            OutError = CodexUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite,
                 Index, WidgetPath, AnimationName);
             return false;
         }
 
-        UWidget* PiUmgFindWidget(UWidgetBlueprint* Blueprint, const FString& Name, FUmgOperationError& OutError,
+        UWidget* CodexUmgFindWidget(UWidgetBlueprint* Blueprint, const FString& Name, FUmgOperationError& OutError,
             int32 Index, const FString& Callsite)
         {
             if (!Blueprint || !Blueprint->WidgetTree)
             {
-                OutError = PiUmgError(TEXT("UmgInvalidBlueprint"), TEXT("Widget Blueprint has no WidgetTree."), Blueprint, Callsite, Index);
+                OutError = CodexUmgError(TEXT("UmgInvalidBlueprint"), TEXT("Widget Blueprint has no WidgetTree."), Blueprint, Callsite, Index);
                 return nullptr;
             }
             UWidget* Widget = Blueprint->WidgetTree->FindWidget(FName(*Name));
             if (!Widget)
             {
-                OutError = PiUmgError(TEXT("UmgWidgetNotFound"), FString::Printf(TEXT("Widget '%s' was not found."), *Name),
+                OutError = CodexUmgError(TEXT("UmgWidgetNotFound"), FString::Printf(TEXT("Widget '%s' was not found."), *Name),
                     Blueprint, Callsite, Index, Name);
             }
             return Widget;
         }
 
-        UWidgetAnimation* PiUmgFindAnimation(UWidgetBlueprint* Blueprint, const FString& Name, FUmgOperationError& OutError,
+        UWidgetAnimation* CodexUmgFindAnimation(UWidgetBlueprint* Blueprint, const FString& Name, FUmgOperationError& OutError,
             int32 Index, const FString& Callsite)
         {
             if (Blueprint)
@@ -137,23 +137,23 @@ namespace CodexUnrealBlueprint
                     if (Animation && (Animation->GetName() == Name || Animation->GetDisplayLabel() == Name)) return Animation;
                 }
             }
-            OutError = PiUmgError(TEXT("UmgAnimationNotFound"), FString::Printf(TEXT("Animation '%s' was not found."), *Name),
+            OutError = CodexUmgError(TEXT("UmgAnimationNotFound"), FString::Printf(TEXT("Animation '%s' was not found."), *Name),
                 Blueprint, Callsite, Index, FString(), Name);
             return nullptr;
         }
 
-        bool PiUmgParseGuid(const FString& Text, FGuid& OutGuid)
+        bool CodexUmgParseGuid(const FString& Text, FGuid& OutGuid)
         {
             return FGuid::Parse(Text, OutGuid) && OutGuid.IsValid();
         }
 
-        FWidgetAnimationBinding* PiUmgFindAnimationBinding(UWidgetAnimation* Animation, const FGuid& Guid)
+        FWidgetAnimationBinding* CodexUmgFindAnimationBinding(UWidgetAnimation* Animation, const FGuid& Guid)
         {
             return Animation ? Animation->AnimationBindings.FindByPredicate(
                 [&Guid](const FWidgetAnimationBinding& Item) { return Item.AnimationGuid == Guid; }) : nullptr;
         }
 
-        bool PiUmgFindNamedSlotOwner(UWidgetBlueprint* Blueprint, UWidget* Child, UWidget*& OutOwner, FName& OutSlot)
+        bool CodexUmgFindNamedSlotOwner(UWidgetBlueprint* Blueprint, UWidget* Child, UWidget*& OutOwner, FName& OutSlot)
         {
             OutOwner = nullptr;
             OutSlot = NAME_None;
@@ -179,14 +179,14 @@ namespace CodexUnrealBlueprint
             return bFound;
         }
 
-        bool PiUmgDetachWidget(UWidgetBlueprint* Blueprint, UWidget* Widget)
+        bool CodexUmgDetachWidget(UWidgetBlueprint* Blueprint, UWidget* Widget)
         {
             if (!Blueprint || !Blueprint->WidgetTree || !Widget) return false;
             int32 ChildIndex = INDEX_NONE;
             if (UPanelWidget* Parent = UWidgetTree::FindWidgetParent(Widget, ChildIndex)) return Parent->RemoveChild(Widget);
             UWidget* Owner = nullptr;
             FName Slot;
-            if (PiUmgFindNamedSlotOwner(Blueprint, Widget, Owner, Slot))
+            if (CodexUmgFindNamedSlotOwner(Blueprint, Widget, Owner, Slot))
             {
                 Cast<INamedSlotInterface>(Owner)->SetContentForSlot(Slot, nullptr);
                 return true;
@@ -199,7 +199,7 @@ namespace CodexUnrealBlueprint
             return Widget->Slot == nullptr;
         }
 
-        bool PiUmgIsDescendant(UWidget* CandidateParent, UWidget* Widget)
+        bool CodexUmgIsDescendant(UWidget* CandidateParent, UWidget* Widget)
         {
             if (!CandidateParent || !Widget) return false;
             if (CandidateParent == Widget) return true;
@@ -211,7 +211,7 @@ namespace CodexUnrealBlueprint
             return bFound;
         }
 
-        bool PiUmgAttachWidget(UWidgetBlueprint* Blueprint, UWidget* Widget, const TSharedRef<FJsonObject>& Operation,
+        bool CodexUmgAttachWidget(UWidgetBlueprint* Blueprint, UWidget* Widget, const TSharedRef<FJsonObject>& Operation,
             FUmgOperationError& OutError, int32 Index, const FString& Callsite)
         {
             FString ParentName;
@@ -222,23 +222,23 @@ namespace CodexUnrealBlueprint
             {
                 if (bHasNamedSlot)
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidParent"), TEXT("'namedSlot' requires 'parent'."), Blueprint, Callsite, Index, Widget->GetName());
+                    OutError = CodexUmgError(TEXT("UmgInvalidParent"), TEXT("'namedSlot' requires 'parent'."), Blueprint, Callsite, Index, Widget->GetName());
                     return false;
                 }
                 if (Blueprint->WidgetTree->RootWidget && Blueprint->WidgetTree->RootWidget != Widget)
                 {
-                    OutError = PiUmgError(TEXT("UmgRootAlreadyExists"), TEXT("WidgetTree already has a root widget."), Blueprint, Callsite, Index, Widget->GetName());
+                    OutError = CodexUmgError(TEXT("UmgRootAlreadyExists"), TEXT("WidgetTree already has a root widget."), Blueprint, Callsite, Index, Widget->GetName());
                     return false;
                 }
                 Blueprint->WidgetTree->RootWidget = Widget;
                 return true;
             }
 
-            UWidget* Parent = PiUmgFindWidget(Blueprint, ParentName, OutError, Index, Callsite);
+            UWidget* Parent = CodexUmgFindWidget(Blueprint, ParentName, OutError, Index, Callsite);
             if (!Parent) return false;
-            if (PiUmgIsDescendant(Parent, Widget))
+            if (CodexUmgIsDescendant(Parent, Widget))
             {
-                OutError = PiUmgError(TEXT("UmgHierarchyCycle"), TEXT("The requested parent is the widget itself or its descendant."),
+                OutError = CodexUmgError(TEXT("UmgHierarchyCycle"), TEXT("The requested parent is the widget itself or its descendant."),
                     Blueprint, Callsite, Index, Widget->GetName());
                 return false;
             }
@@ -246,7 +246,7 @@ namespace CodexUnrealBlueprint
             {
                 if (!Parent->GetClass()->ImplementsInterface(UNamedSlotInterface::StaticClass()))
                 {
-                    OutError = PiUmgError(TEXT("UmgNamedSlotUnsupported"), FString::Printf(TEXT("Widget '%s' has no named slots."), *ParentName),
+                    OutError = CodexUmgError(TEXT("UmgNamedSlotUnsupported"), FString::Printf(TEXT("Widget '%s' has no named slots."), *ParentName),
                         Blueprint, Callsite, Index, ParentName);
                     return false;
                 }
@@ -258,14 +258,14 @@ namespace CodexUnrealBlueprint
                 {
                     TArray<FString> Candidates;
                     for (const FName Candidate : Slots) Candidates.Add(Candidate.ToString());
-                    OutError = PiUmgError(TEXT("UmgNamedSlotNotFound"), FString::Printf(TEXT("Named slot '%s' was not found."), *NamedSlot),
+                    OutError = CodexUmgError(TEXT("UmgNamedSlotNotFound"), FString::Printf(TEXT("Named slot '%s' was not found."), *NamedSlot),
                         Blueprint, Callsite, Index, ParentName, FString(), Candidates);
                     return false;
                 }
                 UWidget* Existing = Interface->GetContentForSlot(SlotName);
                 if (Existing && Existing != Widget)
                 {
-                    OutError = PiUmgError(TEXT("UmgNamedSlotOccupied"), FString::Printf(TEXT("Named slot '%s' already contains '%s'."),
+                    OutError = CodexUmgError(TEXT("UmgNamedSlotOccupied"), FString::Printf(TEXT("Named slot '%s' already contains '%s'."),
                         *NamedSlot, *Existing->GetName()), Blueprint, Callsite, Index, ParentName);
                     return false;
                 }
@@ -276,23 +276,23 @@ namespace CodexUnrealBlueprint
             UPanelWidget* Panel = Cast<UPanelWidget>(Parent);
             if (!Panel)
             {
-                OutError = PiUmgError(TEXT("UmgParentIsNotPanel"), FString::Printf(TEXT("Widget '%s' is not a panel."), *ParentName),
+                OutError = CodexUmgError(TEXT("UmgParentIsNotPanel"), FString::Printf(TEXT("Widget '%s' is not a panel."), *ParentName),
                     Blueprint, Callsite, Index, ParentName);
                 return false;
             }
             if (!Panel->CanAddMoreChildren())
             {
-                OutError = PiUmgError(TEXT("UmgPanelFull"), FString::Printf(TEXT("Panel '%s' cannot accept another child."), *ParentName),
+                OutError = CodexUmgError(TEXT("UmgPanelFull"), FString::Printf(TEXT("Panel '%s' cannot accept another child."), *ParentName),
                     Blueprint, Callsite, Index, ParentName);
                 return false;
             }
             int32 ChildIndex = Panel->GetChildrenCount();
             if (Operation->HasField(TEXT("childIndex")))
             {
-                if (!PiUmgRequireInteger(Operation, TEXT("childIndex"), ChildIndex, OutError, Blueprint, Index, Callsite)) return false;
+                if (!CodexUmgRequireInteger(Operation, TEXT("childIndex"), ChildIndex, OutError, Blueprint, Index, Callsite)) return false;
                 if (ChildIndex < 0 || ChildIndex > Panel->GetChildrenCount())
                 {
-                    OutError = PiUmgError(TEXT("UmgChildIndexOutOfRange"), TEXT("'childIndex' is outside the parent panel."),
+                    OutError = CodexUmgError(TEXT("UmgChildIndexOutOfRange"), TEXT("'childIndex' is outside the parent panel."),
                         Blueprint, Callsite, Index, ParentName);
                     return false;
                 }
@@ -304,37 +304,37 @@ namespace CodexUnrealBlueprint
 #endif
             if (!Slot)
             {
-                OutError = PiUmgError(TEXT("UmgAttachFailed"), TEXT("UE failed to create a PanelSlot."), Blueprint, Callsite, Index,
+                OutError = CodexUmgError(TEXT("UmgAttachFailed"), TEXT("UE failed to create a PanelSlot."), Blueprint, Callsite, Index,
                     Widget->GetName());
                 return false;
             }
             return true;
         }
 
-        bool PiUmgApplySlotProperties(UWidgetBlueprint* Blueprint, UWidget* Widget, const TSharedRef<FJsonObject>& Operation,
+        bool CodexUmgApplySlotProperties(UWidgetBlueprint* Blueprint, UWidget* Widget, const TSharedRef<FJsonObject>& Operation,
             FWriteMutationContext& Context, FUmgOperationError& OutError, int32 Index)
         {
             const TSharedPtr<FJsonObject>* SlotProperties = nullptr;
             if (!Operation->TryGetObjectField(TEXT("slotProperties"), SlotProperties)) return true;
             if (!Widget || !Widget->Slot)
             {
-                OutError = PiUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("'slotProperties' requires attachment to a panel."),
-                    Blueprint, TEXT("PiUmgApplySlotProperties"), Index, Widget ? Widget->GetName() : FString());
+                OutError = CodexUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("'slotProperties' requires attachment to a panel."),
+                    Blueprint, TEXT("CodexUmgApplySlotProperties"), Index, Widget ? Widget->GetName() : FString());
                 return false;
             }
             FWritePipelineError ModifyError;
             if (!Context.Modify(Widget->Slot, ModifyError))
             {
-                OutError = PiUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite, Index,
+                OutError = CodexUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite, Index,
                     Widget->GetName());
                 return false;
             }
             for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*SlotProperties)->Values)
             {
                 FBlueprintOperationError PropertyError;
-                if (!FBlueprintTypeSystem::SetPropertyValue(Widget->Slot, Pair.Key, Pair.Value, PropertyError, PiUmgAssetPath(Blueprint), Index))
+                if (!FBlueprintTypeSystem::SetPropertyValue(Widget->Slot, Pair.Key, Pair.Value, PropertyError, CodexUmgAssetPath(Blueprint), Index))
                 {
-                    OutError = PiUmgError(PropertyError.Code, PropertyError.Message, Blueprint,
+                    OutError = CodexUmgError(PropertyError.Code, PropertyError.Message, Blueprint,
                         PropertyError.UECallsite, Index, Widget->GetName(), FString(), PropertyError.Details);
                     return false;
                 }
@@ -343,7 +343,7 @@ namespace CodexUnrealBlueprint
             return true;
         }
 
-        TSharedRef<FJsonObject> PiUmgPropertySnapshot(UObject* Object, const UWidgetBlueprint* Blueprint)
+        TSharedRef<FJsonObject> CodexUmgPropertySnapshot(UObject* Object, const UWidgetBlueprint* Blueprint)
         {
             TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
             if (!Object) return Json;
@@ -353,15 +353,15 @@ namespace CodexUnrealBlueprint
                 if (!Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Transient | CPF_Deprecated)) continue;
                 FBlueprintOperationError PropertyError;
                 const void* Address = Property->ContainerPtrToValuePtr<void>(Object);
-                TSharedPtr<FJsonValue> Value = FBlueprintTypeSystem::PropertyValueToJson(Property, Address, PropertyError, PiUmgAssetPath(Blueprint));
+                TSharedPtr<FJsonValue> Value = FBlueprintTypeSystem::PropertyValueToJson(Property, Address, PropertyError, CodexUmgAssetPath(Blueprint));
                 if (Value.IsValid()) Json->SetField(Property->GetName(), Value);
             }
             return Json;
         }
 
-        FString PiUmgCanonicalJson(const TSharedPtr<FJsonValue>& Value);
+        FString CodexUmgCanonicalJson(const TSharedPtr<FJsonValue>& Value);
 
-        FString PiUmgCanonicalObject(const TSharedRef<FJsonObject>& Object)
+        FString CodexUmgCanonicalObject(const TSharedRef<FJsonObject>& Object)
         {
             TArray<FString> Keys;
             Object->Values.GetKeys(Keys);
@@ -371,15 +371,15 @@ namespace CodexUnrealBlueprint
             {
                 if (Index) Result += TEXT(",");
                 Result += FString::Printf(TEXT("\"%s\":"), *Keys[Index].ReplaceCharWithEscapedChar());
-                Result += PiUmgCanonicalJson(Object->Values[Keys[Index]]);
+                Result += CodexUmgCanonicalJson(Object->Values[Keys[Index]]);
             }
             return Result + TEXT("}");
         }
 
-        FString PiUmgCanonicalJson(const TSharedPtr<FJsonValue>& Value)
+        FString CodexUmgCanonicalJson(const TSharedPtr<FJsonValue>& Value)
         {
             if (!Value.IsValid() || Value->IsNull()) return TEXT("null");
-            if (Value->Type == EJson::Object) return PiUmgCanonicalObject(Value->AsObject().ToSharedRef());
+            if (Value->Type == EJson::Object) return CodexUmgCanonicalObject(Value->AsObject().ToSharedRef());
             if (Value->Type == EJson::Array)
             {
                 FString Result(TEXT("["));
@@ -387,7 +387,7 @@ namespace CodexUnrealBlueprint
                 for (int32 Index = 0; Index < Values.Num(); ++Index)
                 {
                     if (Index) Result += TEXT(",");
-                    Result += PiUmgCanonicalJson(Values[Index]);
+                    Result += CodexUmgCanonicalJson(Values[Index]);
                 }
                 return Result + TEXT("]");
             }
@@ -398,7 +398,7 @@ namespace CodexUnrealBlueprint
             return Result;
         }
 
-        FString PiUmgBytesToHex(const uint8* Bytes, const int32 Count)
+        FString CodexUmgBytesToHex(const uint8* Bytes, const int32 Count)
         {
             static const TCHAR Hex[] = TEXT("0123456789abcdef");
             FString Result;
@@ -411,16 +411,16 @@ namespace CodexUnrealBlueprint
             return Result;
         }
 
-        FString PiUmgSha1(const FString& Value)
+        FString CodexUmgSha1(const FString& Value)
         {
             const FTCHARToUTF8 Utf8(*Value);
             uint8 Hash[FSHA1::DigestSize];
             FSHA1::HashBuffer(Utf8.Get(), Utf8.Length(), Hash);
-            return PiUmgBytesToHex(Hash, FSHA1::DigestSize);
+            return CodexUmgBytesToHex(Hash, FSHA1::DigestSize);
         }
 
         template<typename ChannelType, typename WriteValue>
-        void PiUmgAppendChannelKeys(FMovieSceneChannel* Channel, TArray<TSharedPtr<FJsonValue>>& OutKeys, WriteValue&& Write)
+        void CodexUmgAppendChannelKeys(FMovieSceneChannel* Channel, TArray<TSharedPtr<FJsonValue>>& OutKeys, WriteValue&& Write)
         {
             ChannelType* Typed = static_cast<ChannelType*>(Channel);
             const auto Data = Typed->GetData();
@@ -435,44 +435,44 @@ namespace CodexUnrealBlueprint
             }
         }
 
-        TSharedRef<FJsonObject> PiUmgChannelSnapshot(FMovieSceneChannel* Channel, const FName TypeName)
+        TSharedRef<FJsonObject> CodexUmgChannelSnapshot(FMovieSceneChannel* Channel, const FName TypeName)
         {
             TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
             Json->SetStringField(TEXT("type"), TypeName.ToString());
             TArray<TSharedPtr<FJsonValue>> Keys;
             if (TypeName == FMovieSceneFloatChannel::StaticStruct()->GetFName())
-                PiUmgAppendChannelKeys<FMovieSceneFloatChannel>(Channel, Keys,
+                CodexUmgAppendChannelKeys<FMovieSceneFloatChannel>(Channel, Keys,
                     [](const TSharedRef<FJsonObject>& Key, const FMovieSceneFloatValue& Value)
                     { Key->SetNumberField(TEXT("value"), Value.Value); });
             else if (TypeName == FMovieSceneBoolChannel::StaticStruct()->GetFName())
-                PiUmgAppendChannelKeys<FMovieSceneBoolChannel>(Channel, Keys,
+                CodexUmgAppendChannelKeys<FMovieSceneBoolChannel>(Channel, Keys,
                     [](const TSharedRef<FJsonObject>& Key, const bool Value) { Key->SetBoolField(TEXT("value"), Value); });
             else if (TypeName == FMovieSceneByteChannel::StaticStruct()->GetFName())
-                PiUmgAppendChannelKeys<FMovieSceneByteChannel>(Channel, Keys,
+                CodexUmgAppendChannelKeys<FMovieSceneByteChannel>(Channel, Keys,
                     [](const TSharedRef<FJsonObject>& Key, const uint8 Value) { Key->SetNumberField(TEXT("value"), Value); });
             else if (TypeName == FMovieSceneIntegerChannel::StaticStruct()->GetFName())
-                PiUmgAppendChannelKeys<FMovieSceneIntegerChannel>(Channel, Keys,
+                CodexUmgAppendChannelKeys<FMovieSceneIntegerChannel>(Channel, Keys,
                     [](const TSharedRef<FJsonObject>& Key, const int32 Value) { Key->SetNumberField(TEXT("value"), Value); });
             else if (TypeName == FMovieSceneStringChannel::StaticStruct()->GetFName())
-                PiUmgAppendChannelKeys<FMovieSceneStringChannel>(Channel, Keys,
+                CodexUmgAppendChannelKeys<FMovieSceneStringChannel>(Channel, Keys,
                     [](const TSharedRef<FJsonObject>& Key, const FString& Value) { Key->SetStringField(TEXT("value"), Value); });
             Json->SetArrayField(TEXT("keys"), Keys);
             return Json;
         }
 
-        bool PiUmgResolveAnimationObjects(UWidgetBlueprint* Blueprint, const TSharedRef<FJsonObject>& Operation,
+        bool CodexUmgResolveAnimationObjects(UWidgetBlueprint* Blueprint, const TSharedRef<FJsonObject>& Operation,
             UWidgetAnimation*& OutAnimation, UMovieScene*& OutMovieScene, FMovieSceneBinding*& OutBinding,
             UMovieSceneTrack*& OutTrack, UMovieSceneSection*& OutSection, FUmgOperationError& OutError,
             int32 Index, const FString& Callsite, bool bNeedBinding, bool bNeedTrack, bool bNeedSection)
         {
             FString AnimationName;
-            if (!PiUmgRequireString(Operation, TEXT("animation"), AnimationName, OutError, Blueprint, Index, Callsite)) return false;
-            OutAnimation = PiUmgFindAnimation(Blueprint, AnimationName, OutError, Index, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("animation"), AnimationName, OutError, Blueprint, Index, Callsite)) return false;
+            OutAnimation = CodexUmgFindAnimation(Blueprint, AnimationName, OutError, Index, Callsite);
             if (!OutAnimation) return false;
             OutMovieScene = OutAnimation->MovieScene;
             if (!OutMovieScene)
             {
-                OutError = PiUmgError(TEXT("UmgAnimationInvalid"), TEXT("Animation has no MovieScene."), Blueprint, Callsite, Index,
+                OutError = CodexUmgError(TEXT("UmgAnimationInvalid"), TEXT("Animation has no MovieScene."), Blueprint, Callsite, Index,
                     FString(), AnimationName);
                 return false;
             }
@@ -482,38 +482,38 @@ namespace CodexUnrealBlueprint
             if (!bNeedBinding) return true;
             FString GuidText;
             FGuid Guid;
-            if (!PiUmgRequireString(Operation, TEXT("bindingGuid"), GuidText, OutError, Blueprint, Index, Callsite)
-                || !PiUmgParseGuid(GuidText, Guid))
+            if (!CodexUmgRequireString(Operation, TEXT("bindingGuid"), GuidText, OutError, Blueprint, Index, Callsite)
+                || !CodexUmgParseGuid(GuidText, Guid))
             {
-                if (!OutError.IsSet()) OutError = PiUmgError(TEXT("UmgInvalidBindingGuid"), TEXT("'bindingGuid' is not a valid GUID."),
+                if (!OutError.IsSet()) OutError = CodexUmgError(TEXT("UmgInvalidBindingGuid"), TEXT("'bindingGuid' is not a valid GUID."),
                     Blueprint, Callsite, Index, FString(), AnimationName);
                 return false;
             }
             OutBinding = OutMovieScene->FindBinding(Guid);
             if (!OutBinding)
             {
-                OutError = PiUmgError(TEXT("UmgAnimationBindingNotFound"), TEXT("MovieScene binding was not found."),
+                OutError = CodexUmgError(TEXT("UmgAnimationBindingNotFound"), TEXT("MovieScene binding was not found."),
                     Blueprint, Callsite, Index, FString(), AnimationName, TArray<FString>{GuidText});
                 return false;
             }
             if (!bNeedTrack) return true;
             int32 TrackIndex = INDEX_NONE;
-            if (!PiUmgRequireInteger(Operation, TEXT("trackIndex"), TrackIndex, OutError, Blueprint, Index, Callsite)) return false;
+            if (!CodexUmgRequireInteger(Operation, TEXT("trackIndex"), TrackIndex, OutError, Blueprint, Index, Callsite)) return false;
             const TArray<UMovieSceneTrack*>& Tracks = OutBinding->GetTracks();
             if (!Tracks.IsValidIndex(TrackIndex) || !Tracks[TrackIndex])
             {
-                OutError = PiUmgError(TEXT("UmgAnimationTrackNotFound"), TEXT("'trackIndex' does not identify a track."),
+                OutError = CodexUmgError(TEXT("UmgAnimationTrackNotFound"), TEXT("'trackIndex' does not identify a track."),
                     Blueprint, Callsite, Index, FString(), AnimationName);
                 return false;
             }
             OutTrack = Tracks[TrackIndex];
             if (!bNeedSection) return true;
             int32 SectionIndex = INDEX_NONE;
-            if (!PiUmgRequireInteger(Operation, TEXT("sectionIndex"), SectionIndex, OutError, Blueprint, Index, Callsite)) return false;
+            if (!CodexUmgRequireInteger(Operation, TEXT("sectionIndex"), SectionIndex, OutError, Blueprint, Index, Callsite)) return false;
             const TArray<UMovieSceneSection*>& Sections = OutTrack->GetAllSections();
             if (!Sections.IsValidIndex(SectionIndex) || !Sections[SectionIndex])
             {
-                OutError = PiUmgError(TEXT("UmgAnimationSectionNotFound"), TEXT("'sectionIndex' does not identify a section."),
+                OutError = CodexUmgError(TEXT("UmgAnimationSectionNotFound"), TEXT("'sectionIndex' does not identify a section."),
                     Blueprint, Callsite, Index, FString(), AnimationName);
                 return false;
             }
@@ -522,7 +522,7 @@ namespace CodexUnrealBlueprint
         }
 
         template<typename ChannelType, typename ValueType>
-        bool PiUmgMutateTypedChannel(ChannelType* Channel, const FString& Action, const int32 Frame, const int32 NewFrame,
+        bool CodexUmgMutateTypedChannel(ChannelType* Channel, const FString& Action, const int32 Frame, const int32 NewFrame,
             const ValueType& Value, FUmgOperationError& OutError, UWidgetBlueprint* Blueprint, int32 Index,
             const FString& AnimationName)
         {
@@ -532,8 +532,8 @@ namespace CodexUnrealBlueprint
             {
                 if (KeyIndex != INDEX_NONE)
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationKeyAlreadyExists"), TEXT("A key already exists at the requested frame."),
-                        Blueprint, TEXT("PiUmgMutateTypedChannel"), Index, FString(), AnimationName);
+                    OutError = CodexUmgError(TEXT("UmgAnimationKeyAlreadyExists"), TEXT("A key already exists at the requested frame."),
+                        Blueprint, TEXT("CodexUmgMutateTypedChannel"), Index, FString(), AnimationName);
                     return false;
                 }
                 Data.AddKey(FFrameNumber(Frame), Value);
@@ -541,8 +541,8 @@ namespace CodexUnrealBlueprint
             }
             if (KeyIndex == INDEX_NONE)
             {
-                OutError = PiUmgError(TEXT("UmgAnimationKeyNotFound"), TEXT("No key exists at the requested frame."),
-                    Blueprint, TEXT("PiUmgMutateTypedChannel"), Index, FString(), AnimationName);
+                OutError = CodexUmgError(TEXT("UmgAnimationKeyNotFound"), TEXT("No key exists at the requested frame."),
+                    Blueprint, TEXT("CodexUmgMutateTypedChannel"), Index, FString(), AnimationName);
                 return false;
             }
             if (Action == TEXT("remove"))
@@ -552,8 +552,8 @@ namespace CodexUnrealBlueprint
             }
             if (NewFrame != Frame && Data.FindKey(FFrameNumber(NewFrame)) != INDEX_NONE)
             {
-                OutError = PiUmgError(TEXT("UmgAnimationKeyAlreadyExists"), TEXT("A key already exists at 'newFrame'."),
-                    Blueprint, TEXT("PiUmgMutateTypedChannel"), Index, FString(), AnimationName);
+                OutError = CodexUmgError(TEXT("UmgAnimationKeyAlreadyExists"), TEXT("A key already exists at 'newFrame'."),
+                    Blueprint, TEXT("CodexUmgMutateTypedChannel"), Index, FString(), AnimationName);
                 return false;
             }
             Data.RemoveKey(KeyIndex);
@@ -667,30 +667,30 @@ namespace CodexUnrealBlueprint
         const FString Callsite(TEXT("FBlueprintUmgOperations::Apply"));
         if (!IsInGameThread())
         {
-            OutError = PiUmgError(TEXT("UmgWrongThread"), TEXT("UMG mutations must run on the game thread."), Blueprint, Callsite, OperationIndex);
+            OutError = CodexUmgError(TEXT("UmgWrongThread"), TEXT("UMG mutations must run on the game thread."), Blueprint, Callsite, OperationIndex);
             return false;
         }
         if (!Blueprint || !Blueprint->WidgetTree)
         {
-            OutError = PiUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
+            OutError = CodexUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
                 Blueprint, Callsite, OperationIndex);
             return false;
         }
         FString Type;
         FString OperationAssetPath;
-        if (!PiUmgRequireString(Operation, TEXT("operation"), Type, OutError, Blueprint, OperationIndex, Callsite)
-            || !PiUmgRequireString(Operation, TEXT("assetPath"), OperationAssetPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
+        if (!CodexUmgRequireString(Operation, TEXT("operation"), Type, OutError, Blueprint, OperationIndex, Callsite)
+            || !CodexUmgRequireString(Operation, TEXT("assetPath"), OperationAssetPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
         if (OperationAssetPath != Blueprint->GetPathName())
         {
-            OutError = PiUmgError(TEXT("UmgAssetPathMismatch"), TEXT("'assetPath' does not identify the supplied Widget Blueprint."),
+            OutError = CodexUmgError(TEXT("UmgAssetPathMismatch"), TEXT("'assetPath' does not identify the supplied Widget Blueprint."),
                 Blueprint, Callsite, OperationIndex, OperationAssetPath);
             return false;
         }
         FWritePipelineError ModifyError;
-        if (!PiUmgModifyObject(Context, Blueprint, ModifyError, OutError, Blueprint, OperationIndex)
-            || !PiUmgModifyObject(Context, Blueprint->WidgetTree, ModifyError, OutError, Blueprint, OperationIndex)) return false;
+        if (!CodexUmgModifyObject(Context, Blueprint, ModifyError, OutError, Blueprint, OperationIndex)
+            || !CodexUmgModifyObject(Context, Blueprint->WidgetTree, ModifyError, OutError, Blueprint, OperationIndex)) return false;
 
-        OutResult.AssetPath = PiUmgAssetPath(Blueprint);
+        OutResult.AssetPath = CodexUmgAssetPath(Blueprint);
         OutResult.ImpactPackages.Add(Blueprint->GetOutermost()->GetName());
         OutResult.Data = MakeShared<FJsonObject>();
         bool bStructural = false;
@@ -698,50 +698,50 @@ namespace CodexUnrealBlueprint
         if (Type == TEXT("widget.add"))
         {
             FString Name, ClassPath;
-            if (!PiUmgRequireString(Operation, TEXT("name"), Name, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("classPath"), ClassPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (!CodexUmgRequireString(Operation, TEXT("name"), Name, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("classPath"), ClassPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
             if (Blueprint->WidgetTree->FindWidget(FName(*Name)))
             {
-                OutError = PiUmgError(TEXT("UmgWidgetAlreadyExists"), FString::Printf(TEXT("Widget '%s' already exists."), *Name),
+                OutError = CodexUmgError(TEXT("UmgWidgetAlreadyExists"), FString::Printf(TEXT("Widget '%s' already exists."), *Name),
                     Blueprint, Callsite, OperationIndex, Name);
                 return false;
             }
             UClass* Class = LoadObject<UClass>(nullptr, *ClassPath);
             if (!Class || !Class->IsChildOf(UWidget::StaticClass()) || Class->HasAnyClassFlags(CLASS_Abstract))
             {
-                OutError = PiUmgError(TEXT("UmgInvalidWidgetClass"), FString::Printf(TEXT("'%s' is not a concrete UWidget class."), *ClassPath),
+                OutError = CodexUmgError(TEXT("UmgInvalidWidgetClass"), FString::Printf(TEXT("'%s' is not a concrete UWidget class."), *ClassPath),
                     Blueprint, TEXT("LoadObject<UClass>"), OperationIndex, Name);
                 return false;
             }
             UWidget* Widget = Blueprint->WidgetTree->ConstructWidget<UWidget>(Class, FName(*Name));
             if (!Widget)
             {
-                OutError = PiUmgError(TEXT("UmgWidgetConstructionFailed"), TEXT("UWidgetTree::ConstructWidget returned null."),
+                OutError = CodexUmgError(TEXT("UmgWidgetConstructionFailed"), TEXT("UWidgetTree::ConstructWidget returned null."),
                     Blueprint, TEXT("UWidgetTree::ConstructWidget"), OperationIndex, Name);
                 return false;
             }
             if (!Context.Modify(Widget, ModifyError))
             {
-                OutError = PiUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite, OperationIndex, Name);
+                OutError = CodexUmgError(ModifyError.Code, ModifyError.Message, Blueprint, ModifyError.UECallsite, OperationIndex, Name);
                 return false;
             }
             FString ParentName;
             if (Operation->TryGetStringField(TEXT("parent"), ParentName) && !ParentName.IsEmpty())
             {
                 UWidget* Parent = Blueprint->WidgetTree->FindWidget(FName(*ParentName));
-                if (Parent && !PiUmgModifyObject(Context, Parent, ModifyError, OutError, Blueprint, OperationIndex, ParentName)) return false;
+                if (Parent && !CodexUmgModifyObject(Context, Parent, ModifyError, OutError, Blueprint, OperationIndex, ParentName)) return false;
             }
-            if (!PiUmgAttachWidget(Blueprint, Widget, Operation, OutError, OperationIndex, Callsite)) return false;
-            if (!PiUmgApplySlotProperties(Blueprint, Widget, Operation, Context, OutError, OperationIndex)) return false;
+            if (!CodexUmgAttachWidget(Blueprint, Widget, Operation, OutError, OperationIndex, Callsite)) return false;
+            if (!CodexUmgApplySlotProperties(Blueprint, Widget, Operation, Context, OutError, OperationIndex)) return false;
             const TSharedPtr<FJsonObject>* Properties = nullptr;
             if (Operation->TryGetObjectField(TEXT("properties"), Properties))
             {
                 for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Properties)->Values)
                 {
                     FBlueprintOperationError PropertyError;
-                    if (!FBlueprintTypeSystem::SetPropertyValue(Widget, Pair.Key, Pair.Value, PropertyError, PiUmgAssetPath(Blueprint), OperationIndex))
+                    if (!FBlueprintTypeSystem::SetPropertyValue(Widget, Pair.Key, Pair.Value, PropertyError, CodexUmgAssetPath(Blueprint), OperationIndex))
                     {
-                        OutError = PiUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
+                        OutError = CodexUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
                             OperationIndex, Name, FString(), PropertyError.Details);
                         return false;
                     }
@@ -754,23 +754,23 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("widget.remove"))
         {
             FString Name;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
             if (!Widget) return false;
             TArray<UWidget*> Removed;
             UWidgetTree::ForWidgetAndChildren(Widget, [&](UWidget* Item) { if (Item) Removed.AddUnique(Item); });
             for (UWidget* Item : Removed)
-                if (!PiUmgModifyObject(Context, Item, ModifyError, OutError, Blueprint, OperationIndex, Item->GetName())) return false;
+                if (!CodexUmgModifyObject(Context, Item, ModifyError, OutError, Blueprint, OperationIndex, Item->GetName())) return false;
             int32 ExistingChildIndex = INDEX_NONE;
             if (UPanelWidget* ExistingParent = UWidgetTree::FindWidgetParent(Widget, ExistingChildIndex))
             {
-                if (!PiUmgModifyObject(Context, ExistingParent, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+                if (!CodexUmgModifyObject(Context, ExistingParent, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             }
             else
             {
                 UWidget* ExistingOwner = nullptr; FName ExistingSlot;
-                if (PiUmgFindNamedSlotOwner(Blueprint, Widget, ExistingOwner, ExistingSlot)
-                    && !PiUmgModifyObject(Context, ExistingOwner, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+                if (CodexUmgFindNamedSlotOwner(Blueprint, Widget, ExistingOwner, ExistingSlot)
+                    && !CodexUmgModifyObject(Context, ExistingOwner, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             }
             TSet<FName> Names;
             for (UWidget* Item : Removed) Names.Add(Item->GetFName());
@@ -780,16 +780,16 @@ namespace CodexUnrealBlueprint
             for (UK2Node_ComponentBoundEvent* BoundEvent : BoundEvents)
             {
                 if (!BoundEvent || !Names.Contains(BoundEvent->ComponentPropertyName)) continue;
-                if (!PiUmgModifyObject(Context, BoundEvent, ModifyError, OutError, Blueprint, OperationIndex, Name)
-                    || !PiUmgModifyObject(Context, BoundEvent->GetGraph(), ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+                if (!CodexUmgModifyObject(Context, BoundEvent, ModifyError, OutError, Blueprint, OperationIndex, Name)
+                    || !CodexUmgModifyObject(Context, BoundEvent->GetGraph(), ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
                 FBlueprintEditorUtils::RemoveNode(Blueprint, BoundEvent, true);
             }
             for (UWidgetAnimation* Animation : Blueprint->Animations)
             {
                 if (!Animation) continue;
-                if (!PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
+                if (!CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
                     Name, Animation->GetDisplayLabel())) return false;
-                if (Animation->MovieScene && !PiUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError,
+                if (Animation->MovieScene && !CodexUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError,
                     Blueprint, OperationIndex, Name, Animation->GetDisplayLabel())) return false;
                 TArray<FGuid> RemovedGuids;
                 Animation->AnimationBindings.RemoveAll([&](const FWidgetAnimationBinding& Binding)
@@ -801,7 +801,7 @@ namespace CodexUnrealBlueprint
             }
             bool bRemoved = false;
             UWidget* NamedSlotOwner = nullptr; FName NamedSlotName;
-            if (PiUmgFindNamedSlotOwner(Blueprint, Widget, NamedSlotOwner, NamedSlotName))
+            if (CodexUmgFindNamedSlotOwner(Blueprint, Widget, NamedSlotOwner, NamedSlotName))
             {
                 Cast<INamedSlotInterface>(NamedSlotOwner)->SetContentForSlot(NamedSlotName, nullptr);
                 bRemoved = true;
@@ -812,7 +812,7 @@ namespace CodexUnrealBlueprint
             }
             if (!bRemoved)
             {
-                OutError = PiUmgError(TEXT("UmgWidgetRemoveFailed"), TEXT("UE could not remove the widget hierarchy."),
+                OutError = CodexUmgError(TEXT("UmgWidgetRemoveFailed"), TEXT("UE could not remove the widget hierarchy."),
                     Blueprint, TEXT("UWidgetTree::RemoveWidget"), OperationIndex, Name);
                 return false;
             }
@@ -821,24 +821,24 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("widget.rename"))
         {
             FString Name, NewName;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("newName"), NewName, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("newName"), NewName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
             if (!Widget) return false;
             const FName NewFName(*NewName);
             if (Blueprint->WidgetTree->FindWidget(NewFName) || FindObject<UObject>(Blueprint->WidgetTree, *NewName))
             {
-                OutError = PiUmgError(TEXT("UmgWidgetAlreadyExists"), FString::Printf(TEXT("Widget '%s' already exists."), *NewName),
+                OutError = CodexUmgError(TEXT("UmgWidgetAlreadyExists"), FString::Printf(TEXT("Widget '%s' already exists."), *NewName),
                     Blueprint, Callsite, OperationIndex, Name);
                 return false;
             }
-            if (!PiUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+            if (!CodexUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             FBlueprintEditorUtils::ReplaceVariableReferences(Blueprint, Widget->GetFName(), NewFName);
             for (FDelegateEditorBinding& Binding : Blueprint->Bindings) if (Binding.ObjectName == Name) Binding.ObjectName = NewName;
             for (UWidgetAnimation* Animation : Blueprint->Animations)
             {
                 if (!Animation) continue;
-                if (!PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
+                if (!CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
                     Name, Animation->GetDisplayLabel())) return false;
                 for (FWidgetAnimationBinding& Binding : Animation->AnimationBindings)
                 {
@@ -846,7 +846,7 @@ namespace CodexUnrealBlueprint
                     Binding.WidgetName = NewFName;
                     if (Animation->MovieScene)
                     {
-                        if (!PiUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError, Blueprint,
+                        if (!CodexUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError, Blueprint,
                             OperationIndex, Name, Animation->GetDisplayLabel())) return false;
                         if (Binding.SlotWidgetName == NAME_None)
                             if (FMovieScenePossessable* Possessable = Animation->MovieScene->FindPossessable(Binding.AnimationGuid))
@@ -859,14 +859,14 @@ namespace CodexUnrealBlueprint
             for (UWidget* NavigationWidget : NavigationWidgets)
             {
                 if (!NavigationWidget || !NavigationWidget->Navigation) continue;
-                if (!PiUmgModifyObject(Context, NavigationWidget->Navigation, ModifyError, OutError, Blueprint,
+                if (!CodexUmgModifyObject(Context, NavigationWidget->Navigation, ModifyError, OutError, Blueprint,
                     OperationIndex, NavigationWidget->GetName())) return false;
                 NavigationWidget->Navigation->TryToRenameBinding(Widget->GetFName(), NewFName);
             }
             Widget->SetDisplayLabel(NewName);
             if (!Widget->Rename(*NewName, Blueprint->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
             {
-                OutError = PiUmgError(TEXT("UmgWidgetRenameFailed"), TEXT("UObject::Rename rejected the new widget name."),
+                OutError = CodexUmgError(TEXT("UmgWidgetRenameFailed"), TEXT("UObject::Rename rejected the new widget name."),
                     Blueprint, TEXT("UObject::Rename"), OperationIndex, Name);
                 return false;
             }
@@ -876,41 +876,41 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("widget.reparent") || Type == TEXT("namedSlot.set"))
         {
             FString Name;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
-            if (!Widget || !PiUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
-            if (Widget->Slot && !PiUmgModifyObject(Context, Widget->Slot, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!Widget || !CodexUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+            if (Widget->Slot && !CodexUmgModifyObject(Context, Widget->Slot, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             int32 ExistingChildIndex = INDEX_NONE;
             if (UPanelWidget* ExistingParent = UWidgetTree::FindWidgetParent(Widget, ExistingChildIndex))
             {
-                if (!PiUmgModifyObject(Context, ExistingParent, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+                if (!CodexUmgModifyObject(Context, ExistingParent, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             }
             else
             {
                 UWidget* ExistingOwner = nullptr; FName ExistingSlot;
-                if (PiUmgFindNamedSlotOwner(Blueprint, Widget, ExistingOwner, ExistingSlot)
-                    && !PiUmgModifyObject(Context, ExistingOwner, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+                if (CodexUmgFindNamedSlotOwner(Blueprint, Widget, ExistingOwner, ExistingSlot)
+                    && !CodexUmgModifyObject(Context, ExistingOwner, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             }
             FString ParentName;
             if (Operation->TryGetStringField(TEXT("parent"), ParentName) && !ParentName.IsEmpty())
             {
                 UWidget* NewParent = Blueprint->WidgetTree->FindWidget(FName(*ParentName));
-                if (NewParent && !PiUmgModifyObject(Context, NewParent, ModifyError, OutError, Blueprint,
+                if (NewParent && !CodexUmgModifyObject(Context, NewParent, ModifyError, OutError, Blueprint,
                     OperationIndex, ParentName)) return false;
             }
-            if (!PiUmgDetachWidget(Blueprint, Widget) || !PiUmgAttachWidget(Blueprint, Widget, Operation, OutError, OperationIndex, Callsite)) return false;
-            if (!PiUmgApplySlotProperties(Blueprint, Widget, Operation, Context, OutError, OperationIndex)) return false;
+            if (!CodexUmgDetachWidget(Blueprint, Widget) || !CodexUmgAttachWidget(Blueprint, Widget, Operation, OutError, OperationIndex, Callsite)) return false;
+            if (!CodexUmgApplySlotProperties(Blueprint, Widget, Operation, Context, OutError, OperationIndex)) return false;
             bStructural = true;
         }
         else if (Type == TEXT("namedSlot.clear"))
         {
             FString ParentName, SlotName;
-            if (!PiUmgRequireString(Operation, TEXT("parent"), ParentName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("namedSlot"), SlotName, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Parent = PiUmgFindWidget(Blueprint, ParentName, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("parent"), ParentName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("namedSlot"), SlotName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Parent = CodexUmgFindWidget(Blueprint, ParentName, OutError, OperationIndex, Callsite);
             if (!Parent || !Parent->GetClass()->ImplementsInterface(UNamedSlotInterface::StaticClass()))
             {
-                if (!OutError.IsSet()) OutError = PiUmgError(TEXT("UmgNamedSlotUnsupported"), TEXT("Parent has no named slots."),
+                if (!OutError.IsSet()) OutError = CodexUmgError(TEXT("UmgNamedSlotUnsupported"), TEXT("Parent has no named slots."),
                     Blueprint, Callsite, OperationIndex, ParentName);
                 return false;
             }
@@ -922,19 +922,19 @@ namespace CodexUnrealBlueprint
             {
                 TArray<FString> Candidates;
                 for (const FName Slot : Slots) Candidates.Add(Slot.ToString());
-                OutError = PiUmgError(TEXT("UmgNamedSlotNotFound"), TEXT("The requested named slot does not exist."),
+                OutError = CodexUmgError(TEXT("UmgNamedSlotNotFound"), TEXT("The requested named slot does not exist."),
                     Blueprint, Callsite, OperationIndex, ParentName, FString(), Candidates);
                 return false;
             }
             UWidget* Existing = Interface->GetContentForSlot(RequestedSlot);
             if (!Existing)
             {
-                OutError = PiUmgError(TEXT("UmgNamedSlotEmpty"), TEXT("The named slot is already empty."), Blueprint, Callsite,
+                OutError = CodexUmgError(TEXT("UmgNamedSlotEmpty"), TEXT("The named slot is already empty."), Blueprint, Callsite,
                     OperationIndex, ParentName);
                 return false;
             }
-            if (!PiUmgModifyObject(Context, Parent, ModifyError, OutError, Blueprint, OperationIndex, ParentName)
-                || !PiUmgModifyObject(Context, Existing, ModifyError, OutError, Blueprint, OperationIndex, Existing->GetName())) return false;
+            if (!CodexUmgModifyObject(Context, Parent, ModifyError, OutError, Blueprint, OperationIndex, ParentName)
+                || !CodexUmgModifyObject(Context, Existing, ModifyError, OutError, Blueprint, OperationIndex, Existing->GetName())) return false;
             Interface->SetContentForSlot(RequestedSlot, nullptr);
             bStructural = true;
         }
@@ -942,22 +942,22 @@ namespace CodexUnrealBlueprint
         {
             FString Name, Property;
             TSharedPtr<FJsonValue> Value;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("property"), Property, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireValue(Operation, TEXT("value"), Value, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("property"), Property, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireValue(Operation, TEXT("value"), Value, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
             UObject* Target = Type == TEXT("slot.property.set") ? static_cast<UObject*>(Widget ? Widget->Slot : nullptr) : Widget;
             if (!Target)
             {
-                if (!OutError.IsSet()) OutError = PiUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("Widget has no PanelSlot."),
+                if (!OutError.IsSet()) OutError = CodexUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("Widget has no PanelSlot."),
                     Blueprint, Callsite, OperationIndex, Name);
                 return false;
             }
-            if (!PiUmgModifyObject(Context, Target, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+            if (!CodexUmgModifyObject(Context, Target, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             FBlueprintOperationError PropertyError;
-            if (!FBlueprintTypeSystem::SetPropertyValue(Target, Property, Value, PropertyError, PiUmgAssetPath(Blueprint), OperationIndex))
+            if (!FBlueprintTypeSystem::SetPropertyValue(Target, Property, Value, PropertyError, CodexUmgAssetPath(Blueprint), OperationIndex))
             {
-                OutError = PiUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
+                OutError = CodexUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
                     OperationIndex, Name, FString(), PropertyError.Details);
                 return false;
             }
@@ -967,29 +967,29 @@ namespace CodexUnrealBlueprint
         {
             FString Name;
             bool bVariable = false;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), Name, OutError, Blueprint, OperationIndex, Callsite)
                 || !Operation->TryGetBoolField(TEXT("isVariable"), bVariable))
             {
-                if (!OutError.IsSet()) OutError = PiUmgError(TEXT("UmgInvalidArgument"), TEXT("'isVariable' must be boolean."),
+                if (!OutError.IsSet()) OutError = CodexUmgError(TEXT("UmgInvalidArgument"), TEXT("'isVariable' must be boolean."),
                     Blueprint, Callsite, OperationIndex, Name);
                 return false;
             }
-            UWidget* Widget = PiUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
-            if (!Widget || !PiUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!Widget || !CodexUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, Name)) return false;
             Widget->bIsVariable = bVariable;
             bStructural = true;
         }
         else if (Type == TEXT("event.bind") || Type == TEXT("event.unbind"))
         {
             FString WidgetName, EventName;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("event"), EventName, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("event"), EventName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
             if (!Widget) return false;
             FMulticastDelegateProperty* Delegate = FindFProperty<FMulticastDelegateProperty>(Widget->GetClass(), FName(*EventName));
             if (!Delegate)
             {
-                OutError = PiUmgError(TEXT("UmgEventNotFound"), TEXT("The widget class has no multicast delegate with this name."),
+                OutError = CodexUmgError(TEXT("UmgEventNotFound"), TEXT("The widget class has no multicast delegate with this name."),
                     Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{EventName});
                 return false;
             }
@@ -999,20 +999,20 @@ namespace CodexUnrealBlueprint
             {
                 if (!Existing)
                 {
-                    OutError = PiUmgError(TEXT("UmgEventBindingNotFound"), TEXT("The requested widget event binding does not exist."),
+                    OutError = CodexUmgError(TEXT("UmgEventBindingNotFound"), TEXT("The requested widget event binding does not exist."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{EventName});
                     return false;
                 }
                 UK2Node_ComponentBoundEvent* MutableNode = const_cast<UK2Node_ComponentBoundEvent*>(Existing);
-                if (!PiUmgModifyObject(Context, MutableNode, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)
-                    || !PiUmgModifyObject(Context, MutableNode->GetGraph(), ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
+                if (!CodexUmgModifyObject(Context, MutableNode, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)
+                    || !CodexUmgModifyObject(Context, MutableNode->GetGraph(), ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
                 MutableNode->DestroyNode();
             }
             else
             {
                 if (Existing)
                 {
-                    OutError = PiUmgError(TEXT("UmgEventBindingAlreadyExists"), TEXT("The widget event is already bound."),
+                    OutError = CodexUmgError(TEXT("UmgEventBindingAlreadyExists"), TEXT("The widget event is already bound."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{EventName});
                     return false;
                 }
@@ -1020,7 +1020,7 @@ namespace CodexUnrealBlueprint
                     ? FindFProperty<FObjectProperty>(Blueprint->SkeletonGeneratedClass, Widget->GetFName()) : nullptr;
                 if (!WidgetProperty)
                 {
-                    OutError = PiUmgError(TEXT("UmgEventWidgetVariableUnavailable"),
+                    OutError = CodexUmgError(TEXT("UmgEventWidgetVariableUnavailable"),
                         TEXT("Event binding requires a compiled widget variable; expose the widget and compile it before binding the event."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{EventName});
                     return false;
@@ -1028,11 +1028,11 @@ namespace CodexUnrealBlueprint
                 UEdGraph* TargetGraph = Blueprint->GetLastEditedUberGraph();
                 if (!TargetGraph)
                 {
-                    OutError = PiUmgError(TEXT("UmgEventGraphNotFound"), TEXT("Widget Blueprint has no event graph."),
+                    OutError = CodexUmgError(TEXT("UmgEventGraphNotFound"), TEXT("Widget Blueprint has no event graph."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{EventName});
                     return false;
                 }
-                if (!PiUmgModifyObject(Context, TargetGraph, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
+                if (!CodexUmgModifyObject(Context, TargetGraph, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
                 double NodeX = TargetGraph->GetGoodPlaceForNewNode().X;
                 double NodeY = TargetGraph->GetGoodPlaceForNewNode().Y;
                 Operation->TryGetNumberField(TEXT("x"), NodeX);
@@ -1045,12 +1045,12 @@ namespace CodexUnrealBlueprint
                     });
                 if (!Created)
                 {
-                    OutError = PiUmgError(TEXT("UmgEventBindingCreateFailed"), TEXT("UE did not create the component-bound event node."),
+                    OutError = CodexUmgError(TEXT("UmgEventBindingCreateFailed"), TEXT("UE did not create the component-bound event node."),
                         Blueprint, TEXT("FEdGraphSchemaAction_K2NewNode::SpawnNode"), OperationIndex,
                         WidgetName, FString(), TArray<FString>{EventName});
                     return false;
                 }
-                if (!PiUmgModifyObject(Context, Created, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
+                if (!CodexUmgModifyObject(Context, Created, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
                 OutResult.Data->SetStringField(TEXT("nodeGuid"), Created->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
             }
             bStructural = true;
@@ -1058,18 +1058,18 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("binding.set"))
         {
             FString WidgetName, PropertyName, Kind, Source;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("property"), PropertyName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("kind"), Kind, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("source"), Source, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("property"), PropertyName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("kind"), Kind, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("source"), Source, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
             if (!Widget) return false;
             FDelegateProperty* Delegate = FindFProperty<FDelegateProperty>(Widget->GetClass(), FName(*(PropertyName + TEXT("Delegate"))));
             const bool bAttributeBinding = Delegate != nullptr;
             if (!Delegate) Delegate = FindFProperty<FDelegateProperty>(Widget->GetClass(), FName(*PropertyName));
             if (!Delegate)
             {
-                OutError = PiUmgError(TEXT("UmgBindingTargetNotDelegate"), TEXT("Binding target is not a delegate property."),
+                OutError = CodexUmgError(TEXT("UmgBindingTargetNotDelegate"), TEXT("Binding target is not a delegate property."),
                     Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{PropertyName});
                 return false;
             }
@@ -1083,13 +1083,13 @@ namespace CodexUnrealBlueprint
                 if (!Function || !Function->IsSignatureCompatibleWith(Delegate->SignatureFunction,
                     UFunction::GetDefaultIgnoredSignatureCompatibilityFlags() | CPF_ReturnParm))
                 {
-                    OutError = PiUmgError(TEXT("UmgBindingSignatureMismatch"), TEXT("Source function does not match the delegate signature."),
+                    OutError = CodexUmgError(TEXT("UmgBindingSignatureMismatch"), TEXT("Source function does not match the delegate signature."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Source});
                     return false;
                 }
                 if (bAttributeBinding && !Function->HasAnyFunctionFlags(FUNC_Const | FUNC_BlueprintPure))
                 {
-                    OutError = PiUmgError(TEXT("UmgBindingFunctionNotPure"), TEXT("Property bindings require a pure or const source function."),
+                    OutError = CodexUmgError(TEXT("UmgBindingFunctionNotPure"), TEXT("Property bindings require a pure or const source function."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Source});
                     return false;
                 }
@@ -1103,7 +1103,7 @@ namespace CodexUnrealBlueprint
                     ? FindFProperty<FProperty>(Blueprint->SkeletonGeneratedClass, FName(*Source)) : nullptr;
                 if (!SourceProperty)
                 {
-                    OutError = PiUmgError(TEXT("UmgBindingSourceNotFound"), TEXT("Source property was not found on the Widget Blueprint class."),
+                    OutError = CodexUmgError(TEXT("UmgBindingSourceNotFound"), TEXT("Source property was not found on the Widget Blueprint class."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Source});
                     return false;
                 }
@@ -1114,7 +1114,7 @@ namespace CodexUnrealBlueprint
                 }
                 if (!ReturnProperty || !ReturnProperty->SameType(SourceProperty))
                 {
-                    OutError = PiUmgError(TEXT("UmgBindingPropertyTypeMismatch"),
+                    OutError = CodexUmgError(TEXT("UmgBindingPropertyTypeMismatch"),
                         TEXT("Source property type does not match the binding delegate return type."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Source});
                     return false;
@@ -1127,7 +1127,7 @@ namespace CodexUnrealBlueprint
             }
             else
             {
-                OutError = PiUmgError(TEXT("UmgInvalidBindingKind"), TEXT("'kind' must be 'function' or 'property'."),
+                OutError = CodexUmgError(TEXT("UmgInvalidBindingKind"), TEXT("'kind' must be 'function' or 'property'."),
                     Blueprint, Callsite, OperationIndex, WidgetName);
                 return false;
             }
@@ -1138,14 +1138,14 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("binding.remove"))
         {
             FString WidgetName, PropertyName;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("property"), PropertyName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("property"), PropertyName, OutError, Blueprint, OperationIndex, Callsite)) return false;
             FDelegateEditorBinding Key;
             Key.ObjectName = WidgetName;
             Key.PropertyName = FName(*PropertyName);
             if (Blueprint->Bindings.Remove(Key) == 0)
             {
-                OutError = PiUmgError(TEXT("UmgBindingNotFound"), TEXT("The requested binding does not exist."), Blueprint,
+                OutError = CodexUmgError(TEXT("UmgBindingNotFound"), TEXT("The requested binding does not exist."), Blueprint,
                     Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{PropertyName});
                 return false;
             }
@@ -1154,13 +1154,13 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("navigation.set") || Type == TEXT("navigation.clear"))
         {
             FString WidgetName, Direction;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
-                || !PiUmgRequireString(Operation, TEXT("direction"), Direction, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidget* Widget = PiUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
+                || !CodexUmgRequireString(Operation, TEXT("direction"), Direction, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
             if (!Widget) return false;
-            if (!PiUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
+            if (!CodexUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
             if (!Widget->Navigation) Widget->Navigation = NewObject<UWidgetNavigation>(Widget, NAME_None, RF_Transactional);
-            if (!Widget->Navigation || !PiUmgModifyObject(Context, Widget->Navigation, ModifyError, OutError,
+            if (!Widget->Navigation || !CodexUmgModifyObject(Context, Widget->Navigation, ModifyError, OutError,
                 Blueprint, OperationIndex, WidgetName)) return false;
             static const TMap<FString, EUINavigation> Directions = {
                 {TEXT("up"), EUINavigation::Up}, {TEXT("down"), EUINavigation::Down}, {TEXT("left"), EUINavigation::Left},
@@ -1168,7 +1168,7 @@ namespace CodexUnrealBlueprint
             const EUINavigation* Nav = Directions.Find(Direction.ToLower());
             if (!Nav)
             {
-                OutError = PiUmgError(TEXT("UmgInvalidNavigationDirection"), TEXT("Unknown navigation direction."),
+                OutError = CodexUmgError(TEXT("UmgInvalidNavigationDirection"), TEXT("Unknown navigation direction."),
                     Blueprint, Callsite, OperationIndex, WidgetName);
                 return false;
             }
@@ -1181,7 +1181,7 @@ namespace CodexUnrealBlueprint
             else
             {
                 FString Rule;
-                if (!PiUmgRequireString(Operation, TEXT("rule"), Rule, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireString(Operation, TEXT("rule"), Rule, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 static const TMap<FString, EUINavigationRule> Rules = {
                     {TEXT("escape"), EUINavigationRule::Escape}, {TEXT("explicit"), EUINavigationRule::Explicit},
                     {TEXT("wrap"), EUINavigationRule::Wrap}, {TEXT("stop"), EUINavigationRule::Stop},
@@ -1189,7 +1189,7 @@ namespace CodexUnrealBlueprint
                 const EUINavigationRule* RuleValue = Rules.Find(Rule.ToLower());
                 if (!RuleValue)
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidNavigationRule"), TEXT("Unknown navigation rule."), Blueprint,
+                    OutError = CodexUmgError(TEXT("UmgInvalidNavigationRule"), TEXT("Unknown navigation rule."), Blueprint,
                         Callsite, OperationIndex, WidgetName);
                     return false;
                 }
@@ -1197,7 +1197,7 @@ namespace CodexUnrealBlueprint
                 Operation->TryGetStringField(TEXT("target"), Target);
                 if (*RuleValue == EUINavigationRule::Explicit && (Target.IsEmpty() || !Blueprint->WidgetTree->FindWidget(FName(*Target))))
                 {
-                    OutError = PiUmgError(TEXT("UmgNavigationTargetNotFound"), TEXT("Explicit navigation requires an existing target widget."),
+                    OutError = CodexUmgError(TEXT("UmgNavigationTargetNotFound"), TEXT("Explicit navigation requires an existing target widget."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Target});
                     return false;
                 }
@@ -1208,7 +1208,7 @@ namespace CodexUnrealBlueprint
                     UFunction* Signature = FindObject<UFunction>(ANY_PACKAGE, TEXT("CustomWidgetNavigationDelegate__DelegateSignature"));
                     if (Target.IsEmpty() || !Function || !Signature || !Function->IsSignatureCompatibleWith(Signature))
                     {
-                        OutError = PiUmgError(TEXT("UmgNavigationFunctionInvalid"),
+                        OutError = CodexUmgError(TEXT("UmgNavigationFunctionInvalid"),
                             TEXT("Custom navigation requires 'target' to name a function matching FCustomWidgetNavigationDelegate."),
                             Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Target});
                         return false;
@@ -1223,29 +1223,29 @@ namespace CodexUnrealBlueprint
         {
             FString WidgetName;
             const TSharedPtr<FJsonObject>* Properties = nullptr;
-            if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
+            if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)
                 || !Operation->TryGetObjectField(TEXT("properties"), Properties))
             {
-                if (!OutError.IsSet()) OutError = PiUmgError(TEXT("UmgInvalidArgument"), TEXT("'properties' must be an object."),
+                if (!OutError.IsSet()) OutError = CodexUmgError(TEXT("UmgInvalidArgument"), TEXT("'properties' must be an object."),
                     Blueprint, Callsite, OperationIndex, WidgetName);
                 return false;
             }
-            UWidget* Widget = PiUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
-            if (!Widget || !PiUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
+            UWidget* Widget = CodexUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
+            if (!Widget || !CodexUmgModifyObject(Context, Widget, ModifyError, OutError, Blueprint, OperationIndex, WidgetName)) return false;
             static const TSet<FString> Allowed = {TEXT("bOverrideAccessibleDefaults"), TEXT("bCanChildrenBeAccessible"),
                 TEXT("AccessibleBehavior"), TEXT("AccessibleSummaryBehavior"), TEXT("AccessibleText"), TEXT("AccessibleSummaryText")};
             for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Properties)->Values)
             {
                 if (!Allowed.Contains(Pair.Key))
                 {
-                    OutError = PiUmgError(TEXT("UmgAccessibilityPropertyRejected"), TEXT("Only UE accessibility properties are accepted."),
+                    OutError = CodexUmgError(TEXT("UmgAccessibilityPropertyRejected"), TEXT("Only UE accessibility properties are accepted."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Pair.Key});
                     return false;
                 }
                 FBlueprintOperationError PropertyError;
-                if (!FBlueprintTypeSystem::SetPropertyValue(Widget, Pair.Key, Pair.Value, PropertyError, PiUmgAssetPath(Blueprint), OperationIndex))
+                if (!FBlueprintTypeSystem::SetPropertyValue(Widget, Pair.Key, Pair.Value, PropertyError, CodexUmgAssetPath(Blueprint), OperationIndex))
                 {
-                    OutError = PiUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
+                    OutError = CodexUmgError(PropertyError.Code, PropertyError.Message, Blueprint, PropertyError.UECallsite,
                         OperationIndex, WidgetName, FString(), PropertyError.Details);
                     return false;
                 }
@@ -1255,12 +1255,12 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("animation.add"))
         {
             FString Name;
-            if (!PiUmgRequireString(Operation, TEXT("name"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (!CodexUmgRequireString(Operation, TEXT("name"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
             FUmgOperationError Ignored;
             for (UWidgetAnimation* Existing : Blueprint->Animations)
                 if (Existing && (Existing->GetName() == Name || Existing->GetDisplayLabel() == Name))
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationAlreadyExists"), TEXT("Animation name is already in use."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationAlreadyExists"), TEXT("Animation name is already in use."),
                         Blueprint, Callsite, OperationIndex, FString(), Name);
                     return false;
                 }
@@ -1269,21 +1269,21 @@ namespace CodexUnrealBlueprint
                 Animation->MovieScene = NewObject<UMovieScene>(Animation, FName(*Name), RF_Transactional);
             if (!Animation || !Animation->MovieScene)
             {
-                OutError = PiUmgError(TEXT("UmgAnimationConstructionFailed"), TEXT("UE failed to construct the WidgetAnimation MovieScene."),
+                OutError = CodexUmgError(TEXT("UmgAnimationConstructionFailed"), TEXT("UE failed to construct the WidgetAnimation MovieScene."),
                     Blueprint, TEXT("NewObject<UWidgetAnimation>/NewObject<UMovieScene>"), OperationIndex, FString(), Name);
                 return false;
             }
-            if (!PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)
-                || !PiUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)) return false;
+            if (!CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)
+                || !CodexUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)) return false;
             Animation->SetDisplayLabel(Name);
             int32 TickResolution = 24000, DisplayRate = 30, StartFrame = 0, EndFrame = 0;
-            if (Operation->HasField(TEXT("tickResolution")) && !PiUmgRequireInteger(Operation, TEXT("tickResolution"), TickResolution, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            if (Operation->HasField(TEXT("displayRate")) && !PiUmgRequireInteger(Operation, TEXT("displayRate"), DisplayRate, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            if (Operation->HasField(TEXT("startFrame")) && !PiUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            if (Operation->HasField(TEXT("endFrame")) && !PiUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (Operation->HasField(TEXT("tickResolution")) && !CodexUmgRequireInteger(Operation, TEXT("tickResolution"), TickResolution, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (Operation->HasField(TEXT("displayRate")) && !CodexUmgRequireInteger(Operation, TEXT("displayRate"), DisplayRate, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (Operation->HasField(TEXT("startFrame")) && !CodexUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            if (Operation->HasField(TEXT("endFrame")) && !CodexUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
             if (TickResolution <= 0 || DisplayRate <= 0 || EndFrame < StartFrame)
             {
-                OutError = PiUmgError(TEXT("UmgInvalidAnimationRange"), TEXT("Rates must be positive and endFrame must not precede startFrame."),
+                OutError = CodexUmgError(TEXT("UmgInvalidAnimationRange"), TEXT("Rates must be positive and endFrame must not precede startFrame."),
                     Blueprint, Callsite, OperationIndex, FString(), Name);
                 return false;
             }
@@ -1297,17 +1297,17 @@ namespace CodexUnrealBlueprint
         else if (Type == TEXT("animation.remove") || Type == TEXT("animation.rename"))
         {
             FString Name;
-            if (!PiUmgRequireString(Operation, TEXT("animation"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
-            UWidgetAnimation* Animation = PiUmgFindAnimation(Blueprint, Name, OutError, OperationIndex, Callsite);
-            if (!Animation || !PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)) return false;
-            if (Animation->MovieScene && !PiUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError,
+            if (!CodexUmgRequireString(Operation, TEXT("animation"), Name, OutError, Blueprint, OperationIndex, Callsite)) return false;
+            UWidgetAnimation* Animation = CodexUmgFindAnimation(Blueprint, Name, OutError, OperationIndex, Callsite);
+            if (!Animation || !CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex, FString(), Name)) return false;
+            if (Animation->MovieScene && !CodexUmgModifyObject(Context, Animation->MovieScene, ModifyError, OutError,
                 Blueprint, OperationIndex, FString(), Name)) return false;
             if (Type == TEXT("animation.remove"))
             {
                 Blueprint->Animations.Remove(Animation);
                 if (!Animation->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationRemoveFailed"), TEXT("UE could not move the removed animation out of the Blueprint."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationRemoveFailed"), TEXT("UE could not move the removed animation out of the Blueprint."),
                         Blueprint, TEXT("UObject::Rename"), OperationIndex, FString(), Name);
                     return false;
                 }
@@ -1315,11 +1315,11 @@ namespace CodexUnrealBlueprint
             else
             {
                 FString NewName;
-                if (!PiUmgRequireString(Operation, TEXT("newName"), NewName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireString(Operation, TEXT("newName"), NewName, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 for (UWidgetAnimation* Existing : Blueprint->Animations)
                     if (Existing != Animation && Existing && (Existing->GetName() == NewName || Existing->GetDisplayLabel() == NewName))
                     {
-                        OutError = PiUmgError(TEXT("UmgAnimationAlreadyExists"), TEXT("Animation name is already in use."),
+                        OutError = CodexUmgError(TEXT("UmgAnimationAlreadyExists"), TEXT("Animation name is already in use."),
                             Blueprint, Callsite, OperationIndex, FString(), NewName);
                         return false;
                     }
@@ -1328,7 +1328,7 @@ namespace CodexUnrealBlueprint
                 Animation->SetDisplayLabel(NewName);
                 if (!Animation->Rename(*NewName, Blueprint, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationRenameFailed"), TEXT("UObject::Rename rejected the animation name."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationRenameFailed"), TEXT("UObject::Rename rejected the animation name."),
                         Blueprint, TEXT("UObject::Rename"), OperationIndex, FString(), Name);
                     return false;
                 }
@@ -1340,19 +1340,19 @@ namespace CodexUnrealBlueprint
         {
             UWidgetAnimation* Animation = nullptr; UMovieScene* MovieScene = nullptr; FMovieSceneBinding* Binding = nullptr;
             UMovieSceneTrack* Track = nullptr; UMovieSceneSection* Section = nullptr;
-            if (!PiUmgResolveAnimationObjects(Blueprint, Operation, Animation, MovieScene, Binding, Track, Section, OutError,
+            if (!CodexUmgResolveAnimationObjects(Blueprint, Operation, Animation, MovieScene, Binding, Track, Section, OutError,
                 OperationIndex, Callsite, Type == TEXT("animation.binding.remove"), false, false)) return false;
-            if (!PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
+            if (!CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
                 FString(), Animation->GetDisplayLabel())
-                || !PiUmgModifyObject(Context, MovieScene, ModifyError, OutError, Blueprint, OperationIndex,
+                || !CodexUmgModifyObject(Context, MovieScene, ModifyError, OutError, Blueprint, OperationIndex,
                     FString(), Animation->GetDisplayLabel())) return false;
             if (Type == TEXT("animation.binding.remove"))
             {
-                FString GuidText; Operation->TryGetStringField(TEXT("bindingGuid"), GuidText); FGuid Guid; PiUmgParseGuid(GuidText, Guid);
-                FWidgetAnimationBinding* AnimationBinding = PiUmgFindAnimationBinding(Animation, Guid);
+                FString GuidText; Operation->TryGetStringField(TEXT("bindingGuid"), GuidText); FGuid Guid; CodexUmgParseGuid(GuidText, Guid);
+                FWidgetAnimationBinding* AnimationBinding = CodexUmgFindAnimationBinding(Animation, Guid);
                 if (!AnimationBinding)
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationBindingNotFound"), TEXT("WidgetAnimation binding metadata was not found."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationBindingNotFound"), TEXT("WidgetAnimation binding metadata was not found."),
                         Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel(), TArray<FString>{GuidText});
                     return false;
                 }
@@ -1362,8 +1362,8 @@ namespace CodexUnrealBlueprint
             else
             {
                 FString WidgetName, Target(TEXT("widget"));
-                if (!PiUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)) return false;
-                UWidget* Widget = PiUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
+                if (!CodexUmgRequireString(Operation, TEXT("widget"), WidgetName, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                UWidget* Widget = CodexUmgFindWidget(Blueprint, WidgetName, OutError, OperationIndex, Callsite);
                 if (!Widget) return false;
                 Operation->TryGetStringField(TEXT("target"), Target);
                 UObject* PossessedObject = Widget;
@@ -1372,14 +1372,14 @@ namespace CodexUnrealBlueprint
                     PossessedObject = Widget->Slot;
                     if (!PossessedObject)
                     {
-                        OutError = PiUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("Slot animation target requires a widget with a PanelSlot."),
+                        OutError = CodexUmgError(TEXT("UmgPanelSlotNotFound"), TEXT("Slot animation target requires a widget with a PanelSlot."),
                             Blueprint, Callsite, OperationIndex, WidgetName);
                         return false;
                     }
                 }
                 else if (Target != TEXT("widget"))
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidAnimationTarget"), TEXT("Animation binding target must be 'widget' or 'slot'."),
+                    OutError = CodexUmgError(TEXT("UmgInvalidAnimationTarget"), TEXT("Animation binding target must be 'widget' or 'slot'."),
                         Blueprint, Callsite, OperationIndex, WidgetName, FString(), TArray<FString>{Target});
                     return false;
                 }
@@ -1387,7 +1387,7 @@ namespace CodexUnrealBlueprint
                 if (Animation->AnimationBindings.ContainsByPredicate([&](const FWidgetAnimationBinding& Existing)
                     { return Existing.WidgetName == Widget->GetFName() && Existing.SlotWidgetName == SlotObjectName; }))
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationBindingAlreadyExists"), TEXT("This widget animation target is already bound."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationBindingAlreadyExists"), TEXT("This widget animation target is already bound."),
                         Blueprint, Callsite, OperationIndex, WidgetName, Animation->GetDisplayLabel(), TArray<FString>{Target});
                     return false;
                 }
@@ -1412,25 +1412,25 @@ namespace CodexUnrealBlueprint
                 || Type.StartsWith(TEXT("animation.key."));
             UWidgetAnimation* Animation = nullptr; UMovieScene* MovieScene = nullptr; FMovieSceneBinding* Binding = nullptr;
             UMovieSceneTrack* Track = nullptr; UMovieSceneSection* Section = nullptr;
-            if (!PiUmgResolveAnimationObjects(Blueprint, Operation, Animation, MovieScene, Binding, Track, Section, OutError,
+            if (!CodexUmgResolveAnimationObjects(Blueprint, Operation, Animation, MovieScene, Binding, Track, Section, OutError,
                 OperationIndex, Callsite, true, bNeedTrack, bNeedSection)) return false;
-            if (!PiUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
+            if (!CodexUmgModifyObject(Context, Animation, ModifyError, OutError, Blueprint, OperationIndex,
                 FString(), Animation->GetDisplayLabel())
-                || !PiUmgModifyObject(Context, MovieScene, ModifyError, OutError, Blueprint, OperationIndex,
+                || !CodexUmgModifyObject(Context, MovieScene, ModifyError, OutError, Blueprint, OperationIndex,
                     FString(), Animation->GetDisplayLabel())) return false;
-            if (Track && !PiUmgModifyObject(Context, Track, ModifyError, OutError, Blueprint, OperationIndex,
+            if (Track && !CodexUmgModifyObject(Context, Track, ModifyError, OutError, Blueprint, OperationIndex,
                 FString(), Animation->GetDisplayLabel())) return false;
-            if (Section && !PiUmgModifyObject(Context, Section, ModifyError, OutError, Blueprint, OperationIndex,
+            if (Section && !CodexUmgModifyObject(Context, Section, ModifyError, OutError, Blueprint, OperationIndex,
                 FString(), Animation->GetDisplayLabel())) return false;
             if (Type == TEXT("animation.track.add"))
             {
                 FString ClassPath;
-                if (!PiUmgRequireString(Operation, TEXT("classPath"), ClassPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireString(Operation, TEXT("classPath"), ClassPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 UClass* TrackClass = LoadObject<UClass>(nullptr, *ClassPath);
                 if (!TrackClass || !TrackClass->IsChildOf(UMovieSceneTrack::StaticClass()) || TrackClass->HasAnyClassFlags(CLASS_Abstract)
                     || Animation->IsTrackSupported(TrackClass) == ETrackSupport::NotSupported)
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidTrackClass"),
+                    OutError = CodexUmgError(TEXT("UmgInvalidTrackClass"),
                         TEXT("'classPath' is not a concrete track class supported by UWidgetAnimation."),
                         Blueprint, TEXT("UWidgetAnimation::IsTrackSupported"), OperationIndex,
                         FString(), Animation->GetDisplayLabel(), TArray<FString>{ClassPath});
@@ -1439,11 +1439,11 @@ namespace CodexUnrealBlueprint
                 Track = MovieScene->AddTrack(TrackClass, Binding->GetObjectGuid());
                 if (!Track)
                 {
-                    OutError = PiUmgError(TEXT("UmgTrackAddFailed"), TEXT("UMovieScene::AddTrack rejected the track class."),
+                    OutError = CodexUmgError(TEXT("UmgTrackAddFailed"), TEXT("UMovieScene::AddTrack rejected the track class."),
                         Blueprint, TEXT("UMovieScene::AddTrack"), OperationIndex, FString(), Animation->GetDisplayLabel());
                     return false;
                 }
-                if (!PiUmgModifyObject(Context, Track, ModifyError, OutError, Blueprint, OperationIndex,
+                if (!CodexUmgModifyObject(Context, Track, ModifyError, OutError, Blueprint, OperationIndex,
                     FString(), Animation->GetDisplayLabel())) return false;
                 FString PropertyName, PropertyPath;
                 if (Operation->TryGetStringField(TEXT("propertyName"), PropertyName))
@@ -1453,7 +1453,7 @@ namespace CodexUnrealBlueprint
                     UMovieScenePropertyTrack* PropertyTrack = Cast<UMovieScenePropertyTrack>(Track);
                     if (!PropertyTrack || PropertyName.IsEmpty())
                     {
-                        OutError = PiUmgError(TEXT("UmgTrackPropertyMismatch"), TEXT("propertyName requires a UMovieScenePropertyTrack."),
+                        OutError = CodexUmgError(TEXT("UmgTrackPropertyMismatch"), TEXT("propertyName requires a UMovieScenePropertyTrack."),
                             Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel());
                         return false;
                     }
@@ -1465,7 +1465,7 @@ namespace CodexUnrealBlueprint
             {
                 if (!MovieScene->RemoveTrack(*Track))
                 {
-                    OutError = PiUmgError(TEXT("UmgTrackRemoveFailed"), TEXT("UMovieScene::RemoveTrack rejected the track."),
+                    OutError = CodexUmgError(TEXT("UmgTrackRemoveFailed"), TEXT("UMovieScene::RemoveTrack rejected the track."),
                         Blueprint, TEXT("UMovieScene::RemoveTrack"), OperationIndex, FString(), Animation->GetDisplayLabel());
                     return false;
                 }
@@ -1475,18 +1475,18 @@ namespace CodexUnrealBlueprint
                 Section = Track->CreateNewSection();
                 if (!Section || !Track->SupportsType(Section->GetClass()))
                 {
-                    OutError = PiUmgError(TEXT("UmgSectionAddFailed"), TEXT("Track could not create a supported section."),
+                    OutError = CodexUmgError(TEXT("UmgSectionAddFailed"), TEXT("Track could not create a supported section."),
                         Blueprint, TEXT("UMovieSceneTrack::CreateNewSection"), OperationIndex, FString(), Animation->GetDisplayLabel());
                     return false;
                 }
-                if (!PiUmgModifyObject(Context, Section, ModifyError, OutError, Blueprint, OperationIndex,
+                if (!CodexUmgModifyObject(Context, Section, ModifyError, OutError, Blueprint, OperationIndex,
                     FString(), Animation->GetDisplayLabel())) return false;
                 int32 StartFrame = 0, EndFrame = 0;
-                if (!PiUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)
-                    || !PiUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)
+                    || !CodexUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 if (EndFrame < StartFrame)
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidSectionRange"), TEXT("endFrame must not precede startFrame."),
+                    OutError = CodexUmgError(TEXT("UmgInvalidSectionRange"), TEXT("endFrame must not precede startFrame."),
                         Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel());
                     return false;
                 }
@@ -1498,17 +1498,17 @@ namespace CodexUnrealBlueprint
             else if (Type == TEXT("animation.section.set"))
             {
                 int32 StartFrame = 0, EndFrame = 0;
-                if (!PiUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)
-                    || !PiUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireInteger(Operation, TEXT("startFrame"), StartFrame, OutError, Blueprint, OperationIndex, Callsite)
+                    || !CodexUmgRequireInteger(Operation, TEXT("endFrame"), EndFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 if (EndFrame < StartFrame)
                 {
-                    OutError = PiUmgError(TEXT("UmgInvalidSectionRange"), TEXT("endFrame must not precede startFrame."),
+                    OutError = CodexUmgError(TEXT("UmgInvalidSectionRange"), TEXT("endFrame must not precede startFrame."),
                         Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel());
                     return false;
                 }
                 Section->SetRange(TRange<FFrameNumber>(FFrameNumber(StartFrame), FFrameNumber(EndFrame)));
                 int32 RowIndex = Section->GetRowIndex();
-                if (Operation->HasField(TEXT("rowIndex")) && !PiUmgRequireInteger(Operation, TEXT("rowIndex"), RowIndex, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (Operation->HasField(TEXT("rowIndex")) && !CodexUmgRequireInteger(Operation, TEXT("rowIndex"), RowIndex, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 Section->SetRowIndex(RowIndex);
                 bool bActive = Section->IsActive(), bLocked = Section->IsLocked();
                 Operation->TryGetBoolField(TEXT("active"), bActive); Operation->TryGetBoolField(TEXT("locked"), bLocked);
@@ -1518,30 +1518,30 @@ namespace CodexUnrealBlueprint
             {
                 FString ChannelType;
                 int32 ChannelIndex = INDEX_NONE, Frame = 0;
-                if (!PiUmgRequireString(Operation, TEXT("channelType"), ChannelType, OutError, Blueprint, OperationIndex, Callsite)
-                    || !PiUmgRequireInteger(Operation, TEXT("channelIndex"), ChannelIndex, OutError, Blueprint, OperationIndex, Callsite)
-                    || !PiUmgRequireInteger(Operation, TEXT("frame"), Frame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (!CodexUmgRequireString(Operation, TEXT("channelType"), ChannelType, OutError, Blueprint, OperationIndex, Callsite)
+                    || !CodexUmgRequireInteger(Operation, TEXT("channelIndex"), ChannelIndex, OutError, Blueprint, OperationIndex, Callsite)
+                    || !CodexUmgRequireInteger(Operation, TEXT("frame"), Frame, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 FMovieSceneChannel* Channel = Section->GetChannelProxy().GetChannel(FName(*ChannelType), ChannelIndex);
                 if (!Channel)
                 {
                     TArray<FString> Candidates;
                     for (const FMovieSceneChannelEntry& Entry : Section->GetChannelProxy().GetAllEntries())
                         Candidates.Add(FString::Printf(TEXT("%s[%d]"), *Entry.GetChannelTypeName().ToString(), Entry.GetChannels().Num()));
-                    OutError = PiUmgError(TEXT("UmgAnimationChannelNotFound"), TEXT("The requested channel type/index was not found."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationChannelNotFound"), TEXT("The requested channel type/index was not found."),
                         Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel(), Candidates);
                     return false;
                 }
                 const FString Action = Type.RightChop(14);
                 int32 NewFrame = Frame;
                 if (Action == TEXT("update") && Operation->HasField(TEXT("newFrame"))
-                    && !PiUmgRequireInteger(Operation, TEXT("newFrame"), NewFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                    && !CodexUmgRequireInteger(Operation, TEXT("newFrame"), NewFrame, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 TSharedPtr<FJsonValue> Value;
-                if (Action != TEXT("remove") && !PiUmgRequireValue(Operation, TEXT("value"), Value, OutError, Blueprint, OperationIndex, Callsite)) return false;
+                if (Action != TEXT("remove") && !CodexUmgRequireValue(Operation, TEXT("value"), Value, OutError, Blueprint, OperationIndex, Callsite)) return false;
                 if (FName(*ChannelType) == FMovieSceneFloatChannel::StaticStruct()->GetFName())
                 {
                     double Number = 0.0;
                     if (Action != TEXT("remove") && (!Value.IsValid() || !Value->TryGetNumber(Number)))
-                    { OutError = PiUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Float channel requires a number."), Blueprint, Callsite, OperationIndex); return false; }
+                    { OutError = CodexUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Float channel requires a number."), Blueprint, Callsite, OperationIndex); return false; }
                     FMovieSceneFloatValue FloatValue(static_cast<float>(Number));
                     FString Interpolation;
                     if (Operation->TryGetStringField(TEXT("interpolation"), Interpolation))
@@ -1549,7 +1549,7 @@ namespace CodexUnrealBlueprint
                         Interpolation = Interpolation.ToLower();
                         if (Interpolation != TEXT("constant") && Interpolation != TEXT("linear") && Interpolation != TEXT("cubic"))
                         {
-                            OutError = PiUmgError(TEXT("UmgAnimationInterpolationInvalid"),
+                            OutError = CodexUmgError(TEXT("UmgAnimationInterpolationInvalid"),
                                 TEXT("'interpolation' must be 'constant', 'linear', or 'cubic'."), Blueprint,
                                 Callsite, OperationIndex, FString(), Animation->GetDisplayLabel(), TArray<FString>{Interpolation});
                             return false;
@@ -1557,23 +1557,23 @@ namespace CodexUnrealBlueprint
                         FloatValue.InterpMode = Interpolation == TEXT("constant") ? RCIM_Constant
                             : Interpolation == TEXT("linear") ? RCIM_Linear : RCIM_Cubic;
                     }
-                    if (!PiUmgMutateTypedChannel(static_cast<FMovieSceneFloatChannel*>(Channel), Action, Frame, NewFrame, FloatValue,
+                    if (!CodexUmgMutateTypedChannel(static_cast<FMovieSceneFloatChannel*>(Channel), Action, Frame, NewFrame, FloatValue,
                         OutError, Blueprint, OperationIndex, Animation->GetDisplayLabel())) return false;
                 }
                 else if (FName(*ChannelType) == FMovieSceneBoolChannel::StaticStruct()->GetFName())
                 {
                     bool TypedValue = false;
                     if (Action != TEXT("remove") && (!Value.IsValid() || !Value->TryGetBool(TypedValue)))
-                    { OutError = PiUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Bool channel requires a boolean."), Blueprint, Callsite, OperationIndex); return false; }
-                    if (!PiUmgMutateTypedChannel(static_cast<FMovieSceneBoolChannel*>(Channel), Action, Frame, NewFrame, TypedValue,
+                    { OutError = CodexUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Bool channel requires a boolean."), Blueprint, Callsite, OperationIndex); return false; }
+                    if (!CodexUmgMutateTypedChannel(static_cast<FMovieSceneBoolChannel*>(Channel), Action, Frame, NewFrame, TypedValue,
                         OutError, Blueprint, OperationIndex, Animation->GetDisplayLabel())) return false;
                 }
                 else if (FName(*ChannelType) == FMovieSceneByteChannel::StaticStruct()->GetFName())
                 {
                     double Number = 0.0;
                     if (Action != TEXT("remove") && (!Value.IsValid() || !Value->TryGetNumber(Number) || Number < 0 || Number > 255 || Number != FMath::RoundToDouble(Number)))
-                    { OutError = PiUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Byte channel requires an integer from 0 to 255."), Blueprint, Callsite, OperationIndex); return false; }
-                    if (!PiUmgMutateTypedChannel(static_cast<FMovieSceneByteChannel*>(Channel), Action, Frame, NewFrame, static_cast<uint8>(Number),
+                    { OutError = CodexUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Byte channel requires an integer from 0 to 255."), Blueprint, Callsite, OperationIndex); return false; }
+                    if (!CodexUmgMutateTypedChannel(static_cast<FMovieSceneByteChannel*>(Channel), Action, Frame, NewFrame, static_cast<uint8>(Number),
                         OutError, Blueprint, OperationIndex, Animation->GetDisplayLabel())) return false;
                 }
                 else if (FName(*ChannelType) == FMovieSceneIntegerChannel::StaticStruct()->GetFName())
@@ -1582,21 +1582,21 @@ namespace CodexUnrealBlueprint
                     if (Action != TEXT("remove") && (!Value.IsValid() || !Value->TryGetNumber(Number)
                         || Number != FMath::RoundToDouble(Number) || Number < static_cast<double>(MIN_int32)
                         || Number > static_cast<double>(MAX_int32)))
-                    { OutError = PiUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Integer channel requires an int32."), Blueprint, Callsite, OperationIndex); return false; }
-                    if (!PiUmgMutateTypedChannel(static_cast<FMovieSceneIntegerChannel*>(Channel), Action, Frame, NewFrame, static_cast<int32>(Number),
+                    { OutError = CodexUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("Integer channel requires an int32."), Blueprint, Callsite, OperationIndex); return false; }
+                    if (!CodexUmgMutateTypedChannel(static_cast<FMovieSceneIntegerChannel*>(Channel), Action, Frame, NewFrame, static_cast<int32>(Number),
                         OutError, Blueprint, OperationIndex, Animation->GetDisplayLabel())) return false;
                 }
                 else if (FName(*ChannelType) == FMovieSceneStringChannel::StaticStruct()->GetFName())
                 {
                     FString TypedValue;
                     if (Action != TEXT("remove") && (!Value.IsValid() || !Value->TryGetString(TypedValue)))
-                    { OutError = PiUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("String channel requires a string."), Blueprint, Callsite, OperationIndex); return false; }
-                    if (!PiUmgMutateTypedChannel(static_cast<FMovieSceneStringChannel*>(Channel), Action, Frame, NewFrame, TypedValue,
+                    { OutError = CodexUmgError(TEXT("UmgAnimationKeyTypeMismatch"), TEXT("String channel requires a string."), Blueprint, Callsite, OperationIndex); return false; }
+                    if (!CodexUmgMutateTypedChannel(static_cast<FMovieSceneStringChannel*>(Channel), Action, Frame, NewFrame, TypedValue,
                         OutError, Blueprint, OperationIndex, Animation->GetDisplayLabel())) return false;
                 }
                 else
                 {
-                    OutError = PiUmgError(TEXT("UmgAnimationChannelUnsupported"), TEXT("Channel key editing supports float, bool, byte, integer, and string UE channels."),
+                    OutError = CodexUmgError(TEXT("UmgAnimationChannelUnsupported"), TEXT("Channel key editing supports float, bool, byte, integer, and string UE channels."),
                         Blueprint, Callsite, OperationIndex, FString(), Animation->GetDisplayLabel(), TArray<FString>{ChannelType});
                     return false;
                 }
@@ -1604,7 +1604,7 @@ namespace CodexUnrealBlueprint
         }
         else
         {
-            OutError = PiUmgError(TEXT("UmgUnknownOperation"), FString::Printf(TEXT("Unknown UMG operation '%s'."), *Type),
+            OutError = CodexUmgError(TEXT("UmgUnknownOperation"), FString::Printf(TEXT("Unknown UMG operation '%s'."), *Type),
                 Blueprint, Callsite, OperationIndex);
             return false;
         }
@@ -1622,17 +1622,17 @@ namespace CodexUnrealBlueprint
         const FString Callsite(TEXT("FBlueprintUmgOperations::Inspect"));
         if (!IsInGameThread())
         {
-            OutError = PiUmgError(TEXT("UmgWrongThread"), TEXT("UMG inspection must run on the game thread."), Blueprint, Callsite, INDEX_NONE);
+            OutError = CodexUmgError(TEXT("UmgWrongThread"), TEXT("UMG inspection must run on the game thread."), Blueprint, Callsite, INDEX_NONE);
             return false;
         }
         if (!Blueprint || !Blueprint->WidgetTree)
         {
-            OutError = PiUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
+            OutError = CodexUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
                 Blueprint, Callsite, INDEX_NONE);
             return false;
         }
         TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>();
-        Snapshot->SetStringField(TEXT("assetPath"), PiUmgAssetPath(Blueprint));
+        Snapshot->SetStringField(TEXT("assetPath"), CodexUmgAssetPath(Blueprint));
         Snapshot->SetStringField(TEXT("package"), Blueprint->GetOutermost()->GetName());
         Snapshot->SetStringField(TEXT("generatedClass"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : FString());
 
@@ -1657,15 +1657,15 @@ namespace CodexUnrealBlueprint
             else
             {
                 UWidget* Owner = nullptr; FName Slot;
-                if (PiUmgFindNamedSlotOwner(Blueprint, Widget, Owner, Slot))
+                if (CodexUmgFindNamedSlotOwner(Blueprint, Widget, Owner, Slot))
                 {
                     Json->SetStringField(TEXT("parent"), Owner->GetName());
                     Json->SetStringField(TEXT("namedSlot"), Slot.ToString());
                 }
             }
-            Json->SetObjectField(TEXT("properties"), PiUmgPropertySnapshot(Widget, Blueprint));
-            if (Widget->Slot) Json->SetObjectField(TEXT("slotProperties"), PiUmgPropertySnapshot(Widget->Slot, Blueprint));
-            if (Widget->Navigation) Json->SetObjectField(TEXT("navigation"), PiUmgPropertySnapshot(Widget->Navigation, Blueprint));
+            Json->SetObjectField(TEXT("properties"), CodexUmgPropertySnapshot(Widget, Blueprint));
+            if (Widget->Slot) Json->SetObjectField(TEXT("slotProperties"), CodexUmgPropertySnapshot(Widget->Slot, Blueprint));
+            if (Widget->Navigation) Json->SetObjectField(TEXT("navigation"), CodexUmgPropertySnapshot(Widget->Navigation, Blueprint));
             if (Widget->bIsVariable && Blueprint->GeneratedClass)
             {
                 FObjectPropertyBase* GeneratedProperty = FindFProperty<FObjectPropertyBase>(Blueprint->GeneratedClass, Widget->GetFName());
@@ -1771,7 +1771,7 @@ namespace CodexUnrealBlueprint
                             TArray<TSharedPtr<FJsonValue>> ChannelsArray;
                             for (const FMovieSceneChannelEntry& Entry : Section->GetChannelProxy().GetAllEntries())
                                 for (FMovieSceneChannel* Channel : Entry.GetChannels())
-                                    ChannelsArray.Add(MakeShared<FJsonValueObject>(PiUmgChannelSnapshot(Channel, Entry.GetChannelTypeName())));
+                                    ChannelsArray.Add(MakeShared<FJsonValueObject>(CodexUmgChannelSnapshot(Channel, Entry.GetChannelTypeName())));
                             SectionObject->SetArrayField(TEXT("channels"), ChannelsArray);
                             SectionsArray.Add(MakeShared<FJsonValueObject>(SectionObject));
                         }
@@ -1786,7 +1786,7 @@ namespace CodexUnrealBlueprint
             AnimationJson.Add(MakeShared<FJsonValueObject>(Json));
         }
         Snapshot->SetArrayField(TEXT("animations"), AnimationJson);
-        const FString Hash = PiUmgSha1(PiUmgCanonicalObject(Snapshot));
+        const FString Hash = CodexUmgSha1(CodexUmgCanonicalObject(Snapshot));
         Snapshot->SetStringField(TEXT("snapshotHash"), Hash);
         OutSnapshot = Snapshot;
         return true;
@@ -1802,7 +1802,7 @@ namespace CodexUnrealBlueprint
             FString ActualHash;
             OutActual->TryGetStringField(TEXT("snapshotHash"), ActualHash);
             if (ExpectedHash.Equals(ActualHash, ESearchCase::IgnoreCase)) return true;
-            OutError = PiUmgError(TEXT("UmgSnapshotMismatch"), TEXT("The persisted Widget Blueprint snapshot does not match the expected hash."),
+            OutError = CodexUmgError(TEXT("UmgSnapshotMismatch"), TEXT("The persisted Widget Blueprint snapshot does not match the expected hash."),
                 Blueprint, TEXT("FBlueprintUmgOperations::VerifySnapshot"), INDEX_NONE, FString(), FString(), TArray<FString>{ExpectedHash, ActualHash});
             return false;
         }
@@ -1812,12 +1812,12 @@ namespace CodexUnrealBlueprint
         TSharedRef<FJsonObject> ExpectedWithoutHash = MakeShared<FJsonObject>();
         ExpectedWithoutHash->Values = Expected->Values;
         ExpectedWithoutHash->RemoveField(TEXT("snapshotHash"));
-        const FString ExpectedCanonical = PiUmgCanonicalObject(ExpectedWithoutHash);
-        const FString ActualCanonical = PiUmgCanonicalObject(ActualWithoutHash);
+        const FString ExpectedCanonical = CodexUmgCanonicalObject(ExpectedWithoutHash);
+        const FString ActualCanonical = CodexUmgCanonicalObject(ActualWithoutHash);
         if (ExpectedCanonical == ActualCanonical) return true;
-        OutError = PiUmgError(TEXT("UmgSnapshotMismatch"), TEXT("The persisted Widget Blueprint structure differs from the expected snapshot."),
+        OutError = CodexUmgError(TEXT("UmgSnapshotMismatch"), TEXT("The persisted Widget Blueprint structure differs from the expected snapshot."),
             Blueprint, TEXT("FBlueprintUmgOperations::VerifySnapshot"), INDEX_NONE,
-            FString(), FString(), TArray<FString>{PiUmgSha1(ExpectedCanonical), PiUmgSha1(ActualCanonical)});
+            FString(), FString(), TArray<FString>{CodexUmgSha1(ExpectedCanonical), CodexUmgSha1(ActualCanonical)});
         return false;
     }
 
@@ -1828,19 +1828,19 @@ namespace CodexUnrealBlueprint
     {
         if (!Blueprint || !Blueprint->WidgetTree)
         {
-            OutError = PiUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
+            OutError = CodexUmgError(TEXT("UmgInvalidBlueprint"), TEXT("A loaded UWidgetBlueprint with a WidgetTree is required."),
                 Blueprint, TEXT("FBlueprintUmgOperations::BuildWriteRequest"), INDEX_NONE);
             return false;
         }
         if (RequestId.TrimStartAndEnd().IsEmpty())
         {
-            OutError = PiUmgError(TEXT("RequestIdRequired"), TEXT("UMG write requests require a non-empty requestId."),
+            OutError = CodexUmgError(TEXT("RequestIdRequired"), TEXT("UMG write requests require a non-empty requestId."),
                 Blueprint, TEXT("FBlueprintUmgOperations::BuildWriteRequest"), INDEX_NONE);
             return false;
         }
         if (Operations.Num() == 0)
         {
-            OutError = PiUmgError(TEXT("UmgOperationsRequired"), TEXT("At least one UMG operation is required."),
+            OutError = CodexUmgError(TEXT("UmgOperationsRequired"), TEXT("At least one UMG operation is required."),
                 Blueprint, TEXT("FBlueprintUmgOperations::BuildWriteRequest"), INDEX_NONE);
             return false;
         }
@@ -1858,7 +1858,7 @@ namespace CodexUnrealBlueprint
             FString HashError;
             if (!StateHashResolver(PackageName, Hash, HashError))
             {
-                OutError = PiUmgError(TEXT("UmgStateHashFailed"), HashError, Blueprint,
+                OutError = CodexUmgError(TEXT("UmgStateHashFailed"), HashError, Blueprint,
                     TEXT("StateHashResolver"), INDEX_NONE);
                 return false;
             }

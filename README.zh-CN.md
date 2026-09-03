@@ -30,6 +30,6 @@ npm install
 npm run check
 ```
 
-详细信息见 [安装](Docs/setup.zh-CN.md)、[架构](Docs/architecture.zh-CN.md)、[MCP 工具](Docs/mcp-reference.zh-CN.md)、[产品范围](Docs/product-scope.zh-CN.md)、[源控恢复](Docs/source-control-recovery.zh-CN.md) 和 [发布门槛](Docs/v1-release-gate.zh-CN.md)。
+详细信息见权威的[产品计划](PLAN.md)、[安装](Docs/setup.zh-CN.md)、[架构](Docs/architecture.zh-CN.md)、[MCP 工具](Docs/mcp-reference.zh-CN.md)、[源控恢复](Docs/source-control-recovery.zh-CN.md)和[发布门槛](Docs/v1-release-gate.zh-CN.md)。
 
 English: [README.md](README.md)
