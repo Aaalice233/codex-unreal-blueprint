@@ -3,6 +3,7 @@
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintInspection.h"
+#include "CodexUnrealAssetInspection.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
 #include "CodexUnrealBlueprintPreflight.h"
 #include "CodexUnrealBlueprintRequestJournal.h"
@@ -188,6 +189,9 @@ namespace CodexUnrealBlueprint
         if (Request.Method == TEXT("unreal.status") || Request.Method == TEXT("unreal_status")) return RunOnGameThread([this, &Request]() { return GetStatus(Request); });
         if (Request.Method == TEXT("unreal.doctor")) return RunOnGameThread([this, &Request]() { return Doctor(Request); });
         if (Request.Method == TEXT("unreal.search")) return RunOnGameThread([this, &Request]() { return Search(Request); });
+        if (Request.Method == TEXT("unreal.asset.inspect")) return RunOnGameThread([this, &Request]() { return InspectAsset(Request); });
+        if (Request.Method == TEXT("unreal.asset.compare")) return RunOnGameThread([this, &Request]() { return CompareAssets(Request); });
+        if (Request.Method == TEXT("unreal.asset.referencers")) return RunOnGameThread([this, &Request]() { return FindAssetReferencers(Request); });
         if (Request.Method == TEXT("blueprint.capabilities")) return Capabilities(Request);
         if (Request.Method == TEXT("blueprint.inspect")) return RunOnGameThread([this, &Request]() { return Inspect(Request); });
         if (Request.Method == TEXT("blueprint.validate")) return RunOnGameThread([this, &Request]() { return Validate(Request); });
@@ -285,7 +289,7 @@ namespace CodexUnrealBlueprint
         Response.Result->SetArrayField(TEXT("dirtyPackages"), DirtyPackages);
         Response.Result->SetObjectField(TEXT("jobQueue"), FJobManager::Get().GetStatus().ToJson());
         TArray<TSharedPtr<FJsonValue>> Methods;
-        const TCHAR* Implemented[] = {TEXT("unreal.status"),TEXT("unreal.doctor"),TEXT("unreal.search"),TEXT("blueprint.capabilities"),TEXT("blueprint.inspect"),TEXT("blueprint.validate"),TEXT("blueprint.apply"),TEXT("blueprint.job"),TEXT("blueprint.verify")};
+        const TCHAR* Implemented[] = {TEXT("unreal.status"),TEXT("unreal.doctor"),TEXT("unreal.search"),TEXT("unreal.asset.inspect"),TEXT("unreal.asset.compare"),TEXT("unreal.asset.referencers"),TEXT("blueprint.capabilities"),TEXT("blueprint.inspect"),TEXT("blueprint.validate"),TEXT("blueprint.apply"),TEXT("blueprint.job"),TEXT("blueprint.verify")};
         for (const TCHAR* Method : Implemented) Methods.Add(MakeShared<FJsonValueString>(Method));
         FRequestJournalStatus JournalStatus;
         FProtocolError JournalError;
@@ -331,6 +335,132 @@ namespace CodexUnrealBlueprint
         TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
         if (!FBlueprintSearch::Search(Query, Domain, Context ? *Context : TSharedPtr<FJsonObject>(), Cursor, static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
         FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue; Response.Result = Result; return Response;
+    }
+
+    FProtocolResponse FCoreService::InspectAsset(const FProtocolRequest& Request) const
+    {
+        FProtocolResponse Strict;
+        if (!RejectUnknownParams(Request, {TEXT("assetPath"), TEXT("facets"), TEXT("propertyPaths"), TEXT("cursor"), TEXT("limit")}, Strict)) return Strict;
+        FString AssetPath, Cursor; double LimitNumber = 500;
+        if (!Request.Params.IsValid() || !Request.Params->TryGetStringField(TEXT("assetPath"), AssetPath)
+            || AssetPath.TrimStartAndEnd().IsEmpty())
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("assetPath is required."), TEXT("FCoreService::InspectAsset")));
+        if ((Request.Params->HasField(TEXT("cursor")) && !Request.Params->TryGetStringField(TEXT("cursor"), Cursor))
+            || (Request.Params->HasField(TEXT("limit")) && !Request.Params->TryGetNumberField(TEXT("limit"), LimitNumber)))
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                TEXT("cursor must be a string and limit must be a number."), TEXT("FCoreService::InspectAsset")));
+        int32 Offset = 0;
+        if (!ParseOffsetCursor(Cursor, Offset) || !FMath::IsNearlyEqual(LimitNumber, FMath::RoundToDouble(LimitNumber))
+            || LimitNumber < 1 || LimitNumber > 500)
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("cursor must be a non-negative decimal offset and limit must be an integer from 1 to 500."),
+                TEXT("FCoreService::InspectAsset")));
+
+        TArray<FString> Facets; TArray<FString> PropertyPaths;
+        const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+        if (Request.Params->HasField(TEXT("facets")))
+        {
+            if (!Request.Params->TryGetArrayField(TEXT("facets"), Values) || !Values || Values->Num() > 16)
+                return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                    TEXT("facets must be an array of at most 16 strings."), TEXT("FCoreService::InspectAsset")));
+            for (const TSharedPtr<FJsonValue>& Value : *Values)
+            {
+                FString Item; if (!Value.IsValid() || !Value->TryGetString(Item) || Item.IsEmpty())
+                    return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                        TEXT("facets must contain non-empty strings."), TEXT("FCoreService::InspectAsset")));
+                Facets.AddUnique(Item);
+            }
+        }
+        Values = nullptr;
+        if (Request.Params->HasField(TEXT("propertyPaths")))
+        {
+            if (!Request.Params->TryGetArrayField(TEXT("propertyPaths"), Values) || !Values || Values->Num() > 500)
+                return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                    TEXT("propertyPaths must be an array of at most 500 strings."), TEXT("FCoreService::InspectAsset")));
+            for (const TSharedPtr<FJsonValue>& Value : *Values)
+            {
+                FString Item; if (!Value.IsValid() || !Value->TryGetString(Item) || Item.TrimStartAndEnd().IsEmpty())
+                    return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                        TEXT("propertyPaths must contain non-empty strings."), TEXT("FCoreService::InspectAsset")));
+                PropertyPaths.AddUnique(Item);
+            }
+        }
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
+        if (!FUnrealAssetInspection::Inspect(AssetPath, Facets, PropertyPaths, Offset,
+            static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Result; return Response;
+    }
+
+    FProtocolResponse FCoreService::CompareAssets(const FProtocolRequest& Request) const
+    {
+        FProtocolResponse Strict;
+        if (!RejectUnknownParams(Request, {TEXT("baseAssetPath"), TEXT("targetAssetPath"), TEXT("facets"), TEXT("propertyPaths"), TEXT("cursor"), TEXT("limit")}, Strict)) return Strict;
+        FString BaseAssetPath, TargetAssetPath, Cursor; double LimitNumber = 500;
+        if (!Request.Params.IsValid()
+            || !Request.Params->TryGetStringField(TEXT("baseAssetPath"), BaseAssetPath) || BaseAssetPath.TrimStartAndEnd().IsEmpty()
+            || !Request.Params->TryGetStringField(TEXT("targetAssetPath"), TargetAssetPath) || TargetAssetPath.TrimStartAndEnd().IsEmpty())
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("baseAssetPath and targetAssetPath are required."), TEXT("FCoreService::CompareAssets")));
+        if ((Request.Params->HasField(TEXT("cursor")) && !Request.Params->TryGetStringField(TEXT("cursor"), Cursor))
+            || (Request.Params->HasField(TEXT("limit")) && !Request.Params->TryGetNumberField(TEXT("limit"), LimitNumber)))
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                TEXT("cursor must be a string and limit must be a number."), TEXT("FCoreService::CompareAssets")));
+        int32 Offset = 0;
+        if (!ParseOffsetCursor(Cursor, Offset) || !FMath::IsNearlyEqual(LimitNumber, FMath::RoundToDouble(LimitNumber))
+            || LimitNumber < 1 || LimitNumber > 500)
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("cursor must be a non-negative decimal offset and limit must be an integer from 1 to 500."),
+                TEXT("FCoreService::CompareAssets")));
+        TArray<FString> Facets; TArray<FString> PropertyPaths; const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+        if (Request.Params->HasField(TEXT("facets")))
+        {
+            if (!Request.Params->TryGetArrayField(TEXT("facets"), Values) || !Values || Values->Num() > 16)
+                return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("facets must be an array."), TEXT("FCoreService::CompareAssets")));
+            for (const TSharedPtr<FJsonValue>& Value : *Values) { FString Item; if (!Value.IsValid() || !Value->TryGetString(Item) || Item.IsEmpty()) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("facets must contain non-empty strings."), TEXT("FCoreService::CompareAssets"))); Facets.AddUnique(Item); }
+        }
+        Values = nullptr;
+        if (Request.Params->HasField(TEXT("propertyPaths")))
+        {
+            if (!Request.Params->TryGetArrayField(TEXT("propertyPaths"), Values) || !Values || Values->Num() > 500)
+                return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("propertyPaths must be an array."), TEXT("FCoreService::CompareAssets")));
+            for (const TSharedPtr<FJsonValue>& Value : *Values) { FString Item; if (!Value.IsValid() || !Value->TryGetString(Item) || Item.IsEmpty()) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("propertyPaths must contain non-empty strings."), TEXT("FCoreService::CompareAssets"))); PropertyPaths.AddUnique(Item); }
+        }
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
+        if (!FUnrealAssetInspection::Compare(BaseAssetPath, TargetAssetPath, Facets, PropertyPaths, Offset,
+            static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Result; return Response;
+    }
+
+    FProtocolResponse FCoreService::FindAssetReferencers(const FProtocolRequest& Request) const
+    {
+        FProtocolResponse Strict;
+        if (!RejectUnknownParams(Request, {TEXT("assetPath"), TEXT("recursive"), TEXT("cursor"), TEXT("limit")}, Strict)) return Strict;
+        FString AssetPath, Cursor; bool bRecursive = false; double LimitNumber = 500;
+        if (!Request.Params.IsValid() || !Request.Params->TryGetStringField(TEXT("assetPath"), AssetPath)
+            || AssetPath.TrimStartAndEnd().IsEmpty())
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("assetPath is required."), TEXT("FCoreService::FindAssetReferencers")));
+        if (Request.Params->HasField(TEXT("recursive")) && !Request.Params->TryGetBoolField(TEXT("recursive"), bRecursive))
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                TEXT("recursive must be boolean."), TEXT("FCoreService::FindAssetReferencers")));
+        if ((Request.Params->HasField(TEXT("cursor")) && !Request.Params->TryGetStringField(TEXT("cursor"), Cursor))
+            || (Request.Params->HasField(TEXT("limit")) && !Request.Params->TryGetNumberField(TEXT("limit"), LimitNumber)))
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch,
+                TEXT("cursor must be a string and limit must be a number."), TEXT("FCoreService::FindAssetReferencers")));
+        int32 Offset = 0;
+        if (!ParseOffsetCursor(Cursor, Offset) || !FMath::IsNearlyEqual(LimitNumber, FMath::RoundToDouble(LimitNumber))
+            || LimitNumber < 1 || LimitNumber > 500)
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument,
+                TEXT("cursor must be a non-negative decimal offset and limit must be an integer from 1 to 500."),
+                TEXT("FCoreService::FindAssetReferencers")));
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
+        if (!FUnrealAssetInspection::FindReferencers(AssetPath, bRecursive, Offset,
+            static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Result; return Response;
     }
 
     FProtocolResponse FCoreService::Capabilities(const FProtocolRequest& Request) const

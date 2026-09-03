@@ -20,6 +20,9 @@ namespace CodexUnrealBlueprint
         FProtocolResponse GetStatus(const FProtocolRequest& Request) const;
         FProtocolResponse Doctor(const FProtocolRequest& Request) const;
         FProtocolResponse Search(const FProtocolRequest& Request) const;
+        FProtocolResponse InspectAsset(const FProtocolRequest& Request) const;
+        FProtocolResponse CompareAssets(const FProtocolRequest& Request) const;
+        FProtocolResponse FindAssetReferencers(const FProtocolRequest& Request) const;
         FProtocolResponse Capabilities(const FProtocolRequest& Request) const;
         FProtocolResponse Inspect(const FProtocolRequest& Request) const;
         FProtocolResponse Validate(const FProtocolRequest& Request) const;

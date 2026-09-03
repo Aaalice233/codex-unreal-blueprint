@@ -1,10 +1,12 @@
 # Codex Unreal Blueprint
 
-Local UE4.27 Win64 Blueprint automation for Codex. The `unreal-blueprint` Skill drives a bundled stdio MCP server, which connects to the `CodexUnrealBlueprint` Editor plugin over authenticated localhost JSON-RPC.
+Layered UE4.27 Win64 asset inspection and Blueprint automation for Codex. The `unreal-blueprint` Skill drives a bundled stdio MCP server, using either the authenticated Editor plugin or the bundled offline UAsset parser.
 
 ## Capabilities
 
-- Search and inspect Blueprint, graph, component, UMG, AnimBlueprint, struct, and enum structure.
+- Inspect any `.uasset` or `.umap` at the generic serialized layer, online or offline.
+- Inspect Blueprint, UMG, AnimBlueprint, AnimMontage, Material, Material Instance, and Niagara structures through specialized Editor facets.
+- Compare assets and find referencers through precise Asset Registry evidence online or serialized binary evidence offline.
 - Fetch strict operation schemas dynamically from the UE Operation Registry.
 - Preflight and automatically execute transactional writes protected by a unique `requestId`.
 - Query, wait for, or cancel jobs, then compile, reload, and verify disk structure independently.
@@ -12,7 +14,7 @@ Local UE4.27 Win64 Blueprint automation for Codex. The `unreal-blueprint` Skill 
 
 ## Install
 
-Requires Node.js 22.19+, PowerShell 7, Visual Studio with C++ tools, UE4.27, and Codex Desktop/CLI:
+Requires Node.js 22.19+, PowerShell 7, .NET SDK 8+, Visual Studio with C++ tools, UE4.27, and Codex Desktop/CLI:
 
 ```powershell
 pwsh ./scripts/setup.ps1 `
@@ -30,6 +32,6 @@ npm install
 npm run check
 ```
 
-See the authoritative [product plan](PLAN.md), [setup](Docs/setup.md), [architecture](Docs/architecture.md), [MCP tools](Docs/mcp-reference.md), [source-control recovery](Docs/source-control-recovery.md), and the [release gate](Docs/v1-release-gate.md).
+See [setup](Docs/setup.md), [architecture](Docs/architecture.md), [MCP tools](Docs/mcp-reference.md), [source-control recovery](Docs/source-control-recovery.md), and the [release gate](Docs/v1-release-gate.md).
 
 中文：[README.zh-CN.md](README.zh-CN.md)

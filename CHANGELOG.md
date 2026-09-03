@@ -8,6 +8,9 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 Migrated the product to a Codex plugin with a bundled stdio MCP server and fully renamed UE plugin. / 已迁移为包含 stdio MCP server 的 Codex plugin，并完整重命名 UE plugin。
 
+- Added layered `generic`, `specialized`, and `editable` asset capabilities, with Editor-backed Material, Niagara, and AnimMontage inspection plus asset comparison and referencer search. / 新增 `generic`、`specialized`、`editable` 分层资产能力，以及 Editor 内 Material、Niagara、AnimMontage 检查、资产比较和引用查找。
+- Bundled the UAssetAPI offline inspector and added `auto`/`editor`/`offline` modes, removing the need for a separate `inspect-unreal-uassets` skill. / 内置 UAssetAPI 离线解析器并增加 `auto`/`editor`/`offline` 模式，不再需要额外安装 `inspect-unreal-uassets` skill。
+- Removed the versioned `PLAN.md`; architecture, MCP contracts, and release gates now own their respective requirements. / 删除版本化 `PLAN.md`，由架构、MCP 契约和发布门槛文档分别维护对应要求。
 - Removed duplicate planning/release documents, stale Pi-era internal identifiers, and unused development-script branches; the remaining build-and-test helper is now `check.ps1`. / 删除重复的规划与发布文档、遗留 Pi 内部标识和未使用的开发脚本分支；保留的构建测试脚本更名为 `check.ps1`。
 - Fixed graceful TCP disconnect handling that could leave one busy-loop UE thread per closed connection; added connection, authentication, idle, and send limits plus repeated-disconnect regression coverage. / 修复 TCP 正常断开后每个连接可能遗留一个 UE 空转线程的问题，并补充连接数、认证、空闲和发送期限以及重复断连回归测试。
 - Removed discovery-only TCP probes, propagated cancellation through discovery and authentication, and made request timeout or cancellation close the transport deterministically. / 删除仅用于发现会话的 TCP 探测，将取消信号贯穿会话发现与认证，并在请求超时或取消时确定性关闭传输连接。

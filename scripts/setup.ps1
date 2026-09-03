@@ -82,10 +82,12 @@ function Resolve-CodexExecutable($Settings) {
 }
 
 function Assert-Prerequisites($Settings) {
-    foreach ($command in @("node", "npm")) { if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "缺少命令：$command" } }
+    foreach ($command in @("node", "npm", "dotnet")) { if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "缺少命令：$command" } }
     if (-not $DryRun) {
         $nodeVersion = (& node --version).Trim().TrimStart("v")
         if ($LASTEXITCODE -ne 0 -or [version]$nodeVersion -lt [version]"22.19.0") { throw "Node.js 必须 >= 22.19.0。" }
+        $dotnetVersion = (& dotnet --version).Trim()
+        if ($LASTEXITCODE -ne 0 -or [version]$dotnetVersion -lt [version]"8.0.0") { throw ".NET SDK 必须 >= 8.0。" }
     }
     $Settings.codexExecutable = Resolve-CodexExecutable $Settings
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
@@ -230,11 +232,11 @@ elseif (Test-Path -LiteralPath "$($settings.uePluginTarget)/Binaries" -PathType 
     $ueFiles = @($ueFiles | Sort-Object path -Unique)
 }
 Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
-$codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "LICENSE", "README.md", "README.zh-CN.md")
+$codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "offline", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "README.zh-CN.md")
 $codexSourceFiles = Get-SourceFiles $script:Repo $codexIncludes
 $codexStage = New-CodexPluginInstallStage $codexSourceFiles
 $codexFiles = Get-SourceFiles $codexStage $codexIncludes
 Sync-ManagedDirectory $settings.codexPluginTarget $codexFiles
 $marketplaceName = Update-PersonalMarketplace $settings
 Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
-Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和九个 MCP tools。"
+Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和十二个 MCP tools。"

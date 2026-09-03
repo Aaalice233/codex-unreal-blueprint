@@ -18,6 +18,7 @@ public class CodexUnrealBlueprintTests : ModuleRules
             "BlueprintGraph",
             "Kismet",
             "MovieScene",
+            "Niagara",
             "SlateCore",
             "UMG",
             "UMGEditor",

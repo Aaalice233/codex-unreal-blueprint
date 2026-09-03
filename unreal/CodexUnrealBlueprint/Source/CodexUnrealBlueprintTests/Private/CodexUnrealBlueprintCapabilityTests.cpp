@@ -4,6 +4,7 @@
 #include "CodexUnrealBlueprintTestFixture.h"
 
 #include "Animation/AnimBlueprint.h"
+#include "Animation/AnimMontage.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Async/TaskGraphInterfaces.h"
@@ -18,12 +19,17 @@
 #include "Engine/LevelScriptBlueprint.h"
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/UserDefinedStruct.h"
+#include "Materials/Material.h"
+#include "Misc/PackageName.h"
+#include "NiagaraSystem.h"
+#include "UObject/Package.h"
 #include "GameFramework/Actor.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "CodexUnrealBlueprintActionCatalog.h"
+#include "CodexUnrealAssetInspection.h"
 #include "CodexUnrealBlueprintComponentOperations.h"
 #include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintGraphOperations.h"
@@ -43,6 +49,21 @@ using namespace CodexUnrealBlueprintTests;
 
 namespace
 {
+    template <typename TAsset>
+    TAsset* CreateInspectableAsset(FScopedFixture& Fixture, const FString& Leaf)
+    {
+        const FString PackageName = Fixture.Package(Leaf);
+        UPackage* Package = CreatePackage(*PackageName);
+        TAsset* Asset = NewObject<TAsset>(Package, FName(*FPackageName::GetLongPackageAssetName(PackageName)),
+            RF_Public | RF_Standalone | RF_Transactional);
+        if (Asset)
+        {
+            FAssetRegistryModule::AssetCreated(Asset);
+            Package->MarkPackageDirty();
+        }
+        return Asset;
+    }
+
     FEdGraphPinType PinType(const FName Category)
     {
         FEdGraphPinType Type;
@@ -140,6 +161,51 @@ namespace
         OutError = TEXT("Timed out waiting for the public write job.");
         return false;
     }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexLayeredAssetInspectionUnitTest,
+    "CodexUnrealBlueprint.Unit.Assets.LayeredInspection", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexLayeredAssetInspectionUnitTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("LayeredAssets"));
+    UBlueprint* Blueprint = Fixture.CreateBlueprint(TEXT("BP_Inspectable"));
+    UMaterial* Material = CreateInspectableAsset<UMaterial>(Fixture, TEXT("M_Inspectable"));
+    UAnimMontage* Montage = CreateInspectableAsset<UAnimMontage>(Fixture, TEXT("AM_Inspectable"));
+    UNiagaraSystem* Niagara = CreateInspectableAsset<UNiagaraSystem>(Fixture, TEXT("NS_Inspectable"));
+    if (!TestNotNull(TEXT("Blueprint fixture exists"), Blueprint)
+        || !TestNotNull(TEXT("Material fixture exists"), Material)
+        || !TestNotNull(TEXT("Montage fixture exists"), Montage)
+        || !TestNotNull(TEXT("Niagara fixture exists"), Niagara)) return false;
+
+    struct FCase { UObject* Asset; const TCHAR* SpecializedField; bool bEditable; };
+    const FCase Cases[] = {
+        {Blueprint, TEXT("blueprint"), true},
+        {Material, TEXT("material"), false},
+        {Montage, TEXT("animMontage"), false},
+        {Niagara, TEXT("niagaraSystem"), false}
+    };
+    for (const FCase& Case : Cases)
+    {
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
+        if (!TestTrue(*FString::Printf(TEXT("%s layered inspection succeeds"), *Case.Asset->GetName()),
+            FUnrealAssetInspection::Inspect(Case.Asset->GetPathName(), {}, {}, 0, 500, Result, Error))) continue;
+        const TSharedPtr<FJsonObject>* Facets = nullptr; const TSharedPtr<FJsonObject>* Support = nullptr;
+        const TSharedPtr<FJsonObject>* Specialized = nullptr;
+        Result->TryGetObjectField(TEXT("facets"), Facets);
+        if (!TestTrue(TEXT("facets returned"), Facets != nullptr)) continue;
+        (*Facets)->TryGetObjectField(TEXT("support"), Support);
+        (*Facets)->TryGetObjectField(TEXT("specialized"), Specialized);
+        TestTrue(TEXT("generic layer is declared"), Support && (*Support)->GetBoolField(TEXT("generic")));
+        TestEqual(TEXT("editable layer is accurate"), Support ? (*Support)->GetBoolField(TEXT("editable")) : false, Case.bEditable);
+        TestTrue(TEXT("specialized snapshot matches asset family"), Specialized && (*Specialized)->HasField(Case.SpecializedField));
+    }
+
+    TSharedRef<FJsonObject> Comparison = MakeShared<FJsonObject>(); FProtocolError CompareError;
+    TestTrue(TEXT("same asset comparison succeeds"), FUnrealAssetInspection::Compare(
+        Material->GetPathName(), Material->GetPathName(), {}, {}, 0, 500, Comparison, CompareError));
+    TestTrue(TEXT("same asset is identical"), Comparison->GetBoolField(TEXT("identical")));
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexAssetCrudAndKindsUnitTest,

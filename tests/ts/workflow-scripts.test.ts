@@ -62,6 +62,8 @@ describe("PowerShell development workflow", () => {
     expect(source.indexOf("Assert-EditorClosed $settings")).toBeLessThan(source.indexOf("Sync-ManagedDirectory $settings.uePluginTarget"));
     expect(source).toContain('Get-SourceFiles $packageRoot @("Binaries")');
     expect(source).toContain('Get-SourceFiles $settings.uePluginTarget @("Binaries")');
+    expect(source).toContain('@("node", "npm", "dotnet")');
+    expect(source).toContain('.NET SDK 必须 >= 8.0');
     expect(source.indexOf('Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat"'))
       .toBeLessThan(source.indexOf('Get-SourceFiles $packageRoot @("Binaries")'));
     for (const forbidden of ["reset --hard", "git clean", "git stash", "push --force"]) expect(source).not.toContain(forbidden);

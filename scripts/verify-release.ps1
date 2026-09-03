@@ -34,13 +34,14 @@ if (-not $cppProtocol.Success -or -not $tsProtocol.Success -or $cppProtocol.Grou
 
 $required = @(
     ".codex-plugin/plugin.json", ".mcp.json", "dist/mcp/index.js", "skills/unreal-blueprint/SKILL.md",
+    "offline/Inspect-UAsset.ps1", "offline/uasset-inspector/UnrealUAssetInspector.csproj", "THIRD_PARTY_NOTICES.md",
     "src/mcp/index.ts", "tests/ts/mcp.test.ts", "scripts/setup.ps1",
     "unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "Docs/mcp-reference.md", "Docs/mcp-reference.zh-CN.md"
 )
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath "$repo/$_" -PathType Leaf) })
 if ($missing.Count -gt 0) { throw "Release surface is incomplete: $($missing -join ', ')" }
 
-$scanRoots = @(".codex-plugin", "skills", "src", "scripts", "unreal", "Docs", "README.md", "README.zh-CN.md", "PLAN.md", "package.json")
+$scanRoots = @(".codex-plugin", "skills", "offline", "src", "scripts", "unreal", "Docs", "README.md", "README.zh-CN.md", "package.json")
 $legacyPatterns = @(("Pi" + "UnrealBlueprint"), ("pi-unreal" + "-blueprint"), ("PI_UNREAL" + "_"), ("@earendil" + "-works"), ("Pi Ext" + "ension"))
 $legacyHits = @()
 foreach ($root in $scanRoots) {

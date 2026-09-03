@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("Codex stdio MCP server", () => {
-  it("publishes the nine tools with the required annotations over a real stdio round trip", async () => {
+  it("publishes the twelve tools with the required annotations over a real stdio round trip", async () => {
     await mkdir(testState, { recursive: true });
     const childEnvironment = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
     childEnvironment.LOCALAPPDATA = testState;
@@ -55,6 +55,30 @@ describe("Codex stdio MCP server", () => {
       assetPath: "/Game/Test/BP_Test.BP_Test",
       classDefaultPropertyPaths: [""]
     }).success).toBe(false);
+  });
+
+  it("validates layered online and offline asset requests", () => {
+    expect(toolSchemas.unreal_asset_inspect.safeParse({
+      mode: "editor",
+      assetPath: "/Game/Effects/NS_Test.NS_Test",
+      facets: ["support", "specialized"]
+    }).success).toBe(true);
+    expect(toolSchemas.unreal_asset_inspect.safeParse({
+      mode: "offline",
+      filePath: "E:/Project/Content/Effects/NS_Test.uasset",
+      searchTerms: ["User.SpawnProbability"]
+    }).success).toBe(true);
+    expect(toolSchemas.unreal_asset_compare.safeParse({
+      mode: "offline",
+      baseFilePath: "E:/Project/Content/A.uasset",
+      targetFilePath: "E:/Project/Content/B.uasset"
+    }).success).toBe(true);
+    expect(toolSchemas.unreal_asset_referencers.safeParse({
+      mode: "offline",
+      targetFilePath: "E:/Project/Content/A.uasset",
+      searchRoot: "E:/Project/Content"
+    }).success).toBe(true);
+    expect(toolSchemas.unreal_asset_inspect.safeParse({ mode: "offline" }).success).toBe(false);
   });
 
   it("returns a structured disconnected status when no Editor session exists", async () => {

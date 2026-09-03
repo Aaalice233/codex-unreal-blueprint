@@ -1,7 +1,7 @@
 {
   "name": "codex-unreal-blueprint",
   "version": "1.0.0",
-  "description": "Production-grade Blueprint automation for Unreal Engine 4.27 and Codex",
+  "description": "Layered Unreal Engine 4.27 asset inspection and production-grade Blueprint automation for Codex",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -22,6 +22,9 @@
     "mcp",
     "unreal-engine",
     "blueprint",
+    "uasset",
+    "niagara",
+    "material",
     "ue4"
   ],
   "scripts": {

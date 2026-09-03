@@ -3,6 +3,7 @@ import { discoverSessions, invokeWriteWithRecovery, selectSession, withUnrealCli
 import { TOOL_NAMES, type ToolName } from "../shared/contracts.js";
 import { asUnrealBlueprintError, ERROR_CODES, UnrealBlueprintError } from "../shared/errors.js";
 import { assertJsonValue, isJsonObject, type JsonObject, type JsonValue } from "../shared/json.js";
+import { compareOfflineAssets, findOfflineReferencers, inspectOfflineAsset, offlineArguments } from "../offline/uasset-inspector.js";
 
 const sessionSchema = z.object({
   editorSessionId: z.string().min(1).optional(),
@@ -10,6 +11,9 @@ const sessionSchema = z.object({
 }).strict().optional();
 const jsonObjectSchema = z.record(z.unknown());
 const operationSchema = z.object({ operation: z.string().min(1) }).passthrough();
+const assetModeSchema = z.enum(["auto", "editor", "offline"]).optional();
+const assetFacetsSchema = z.array(z.enum(["support", "generic", "properties", "dependencies", "referencers", "specialized"])).max(16).optional();
+const propertyPathsSchema = z.array(z.string().min(1)).max(500).optional();
 
 export const toolSchemas = {
   unreal_status: z.object({ session: sessionSchema }).strict(),
@@ -22,6 +26,48 @@ export const toolSchemas = {
     cursor: z.string().optional(),
     limit: z.number().int().min(1).max(200).optional()
   }).strict(),
+  unreal_asset_inspect: z.object({
+    session: sessionSchema,
+    mode: assetModeSchema,
+    assetPath: z.string().min(1).optional(),
+    filePath: z.string().min(1).optional(),
+    contentRoot: z.string().min(1).optional(),
+    searchTerms: z.array(z.string().min(1)).max(100).optional(),
+    facets: assetFacetsSchema,
+    propertyPaths: propertyPathsSchema,
+    cursor: z.string().optional(),
+    limit: z.number().int().min(1).max(500).optional()
+  }).strict().refine((value) => value.assetPath !== undefined || value.filePath !== undefined,
+    "unreal_asset_inspect requires assetPath or filePath"),
+  unreal_asset_compare: z.object({
+    session: sessionSchema,
+    mode: assetModeSchema,
+    baseAssetPath: z.string().min(1).optional(),
+    targetAssetPath: z.string().min(1).optional(),
+    baseFilePath: z.string().min(1).optional(),
+    targetFilePath: z.string().min(1).optional(),
+    contentRoot: z.string().min(1).optional(),
+    searchTerms: z.array(z.string().min(1)).max(100).optional(),
+    facets: assetFacetsSchema,
+    propertyPaths: propertyPathsSchema,
+    cursor: z.string().optional(),
+    limit: z.number().int().min(1).max(500).optional()
+  }).strict().refine((value) =>
+    (value.baseAssetPath !== undefined && value.targetAssetPath !== undefined)
+      || (value.baseFilePath !== undefined && value.targetFilePath !== undefined),
+  "unreal_asset_compare requires a complete Editor asset-path pair or offline file-path pair"),
+  unreal_asset_referencers: z.object({
+    session: sessionSchema,
+    mode: assetModeSchema,
+    assetPath: z.string().min(1).optional(),
+    targetFilePath: z.string().min(1).optional(),
+    searchRoot: z.string().min(1).optional(),
+    contentRoot: z.string().min(1).optional(),
+    recursive: z.boolean().optional(),
+    cursor: z.string().optional(),
+    limit: z.number().int().min(1).max(500).optional()
+  }).strict().refine((value) => value.assetPath !== undefined || value.targetFilePath !== undefined,
+    "unreal_asset_referencers requires assetPath or targetFilePath"),
   blueprint_capabilities: z.object({
     session: sessionSchema,
     domain: z.string().min(1).optional(),
@@ -66,6 +112,9 @@ export const toolDescriptions: Record<ToolName, string> = {
   unreal_status: "Discover or select the exact UE4.27 Editor and return session, PIE, source-control, dirty-package, and queue status.",
   unreal_doctor: "Check the UE plugin, protocol, project configuration, port, permissions, and build environment.",
   unreal_search: "Search Blueprint assets, classes, members, properties, graph actions, or operations with pagination.",
+  unreal_asset_inspect: "Inspect any Unreal asset through layered generic, specialized, and editable capabilities; auto mode prefers the Editor and falls back to the bundled offline parser.",
+  unreal_asset_compare: "Compare two Unreal assets through the Editor or bundled offline parser and return structured changed facets or fields.",
+  unreal_asset_referencers: "Find precise Asset Registry referencers in Editor mode or serialized binary reference evidence in offline mode.",
   blueprint_capabilities: "Fetch strict operation parameter JSON Schemas and examples dynamically from the UE Operation Registry.",
   blueprint_inspect: "Read paged Blueprint facets, stable IDs, compile state, and structure hashes without modifying assets.",
   blueprint_validate: "Validate a one-shot operation list in memory without changing assets.",
@@ -101,9 +150,88 @@ function invokeOptions(name: ToolName, rpcParams: JsonObject, signal?: AbortSign
   return options;
 }
 
+const ASSET_TOOL_NAMES = new Set<ToolName>([
+  "unreal_asset_inspect", "unreal_asset_compare", "unreal_asset_referencers"
+]);
+
+function pickEditorAssetParameters(name: ToolName, parameters: JsonObject): JsonObject {
+  const allowed = name === "unreal_asset_inspect"
+    ? ["assetPath", "facets", "propertyPaths", "cursor", "limit"]
+    : name === "unreal_asset_compare"
+      ? ["baseAssetPath", "targetAssetPath", "facets", "propertyPaths", "cursor", "limit"]
+      : ["assetPath", "recursive", "cursor", "limit"];
+  return Object.fromEntries(Object.entries(parameters).filter(([key]) => allowed.includes(key))) as JsonObject;
+}
+
+function canRunEditorAssetTool(name: ToolName, parameters: JsonObject): boolean {
+  if (name === "unreal_asset_inspect") return typeof parameters.assetPath === "string";
+  if (name === "unreal_asset_compare") return typeof parameters.baseAssetPath === "string" && typeof parameters.targetAssetPath === "string";
+  return typeof parameters.assetPath === "string";
+}
+
+function canRunOfflineAssetTool(name: ToolName, parameters: JsonObject): boolean {
+  if (name === "unreal_asset_inspect") return typeof parameters.filePath === "string";
+  if (name === "unreal_asset_compare") return typeof parameters.baseFilePath === "string" && typeof parameters.targetFilePath === "string";
+  return typeof parameters.targetFilePath === "string" && typeof parameters.searchRoot === "string";
+}
+
+async function invokeOfflineAssetTool(name: ToolName, parameters: JsonObject): Promise<JsonValue> {
+  const { contentRoot, searchTerms } = offlineArguments(parameters);
+  if (name === "unreal_asset_inspect" && typeof parameters.filePath === "string") {
+    return inspectOfflineAsset(parameters.filePath, contentRoot, searchTerms);
+  }
+  if (name === "unreal_asset_compare" && typeof parameters.baseFilePath === "string" && typeof parameters.targetFilePath === "string") {
+    return compareOfflineAssets(parameters.baseFilePath, parameters.targetFilePath, contentRoot, searchTerms);
+  }
+  if (name === "unreal_asset_referencers" && typeof parameters.targetFilePath === "string" && typeof parameters.searchRoot === "string") {
+    const { offset, limit } = offlinePagination(parameters);
+    return findOfflineReferencers(parameters.targetFilePath, parameters.searchRoot, contentRoot, offset, limit);
+  }
+  throw new UnrealBlueprintError(ERROR_CODES.INVALID_ARGUMENT, `${name} does not have the file paths required for offline mode`);
+}
+
+function offlinePagination(parameters: JsonObject): { offset: number; limit: number } {
+  const cursor = typeof parameters.cursor === "string" ? parameters.cursor : "0";
+  const offset = Number(cursor);
+  if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(offset)) {
+    throw new UnrealBlueprintError(ERROR_CODES.INVALID_ARGUMENT, "cursor must be a non-negative decimal offset");
+  }
+  return { offset, limit: typeof parameters.limit === "number" ? parameters.limit : 500 };
+}
+
+async function invokeLayeredAssetTool(name: ToolName, parameters: JsonObject, session: SessionQuery,
+  signal?: AbortSignal): Promise<JsonValue> {
+  const mode = typeof parameters.mode === "string" ? parameters.mode : "auto";
+  if (mode === "offline") return invokeOfflineAssetTool(name, parameters);
+  if (mode === "editor") {
+    if (!canRunEditorAssetTool(name, parameters)) {
+      throw new UnrealBlueprintError(ERROR_CODES.INVALID_ARGUMENT, `${name} does not have the Unreal asset paths required for Editor mode`);
+    }
+    const rpcParams = pickEditorAssetParameters(name, parameters);
+    return withUnrealClient({ session, ...(signal === undefined ? {} : { signal }) },
+      (client) => client.invoke(name, rpcParams, invokeOptions(name, rpcParams, signal)));
+  }
+
+  if (canRunEditorAssetTool(name, parameters)) {
+    const sessions = await discoverSessions(session, {}, signal);
+    if (sessions.length === 1) {
+      const rpcParams = pickEditorAssetParameters(name, parameters);
+      return withUnrealClient({ session: { editorSessionId: sessions[0]!.editorSessionId }, ...(signal === undefined ? {} : { signal }) },
+        (client) => client.invoke(name, rpcParams, invokeOptions(name, rpcParams, signal)));
+    }
+    if (sessions.length > 1 || session.editorSessionId !== undefined) {
+      await selectSession(session, {}, signal);
+    }
+  }
+  if (canRunOfflineAssetTool(name, parameters)) return invokeOfflineAssetTool(name, parameters);
+  throw new UnrealBlueprintError(ERROR_CODES.INVALID_ARGUMENT,
+    `${name} auto mode found no matching Editor and does not have the file paths required for offline fallback`);
+}
+
 export async function invokeTool(name: ToolName, parameters: unknown, signal?: AbortSignal): Promise<JsonValue> {
   const parsed = toolSchemas[name].parse(parameters);
   const { session, rpcParams } = splitParameters(parsed);
+  if (ASSET_TOOL_NAMES.has(name)) return invokeLayeredAssetTool(name, rpcParams, session, signal);
   if (name === "unreal_status" && session.editorSessionId === undefined) {
     const sessions = await discoverSessions(session, {}, signal);
     if (sessions.length !== 1) {

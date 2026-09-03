@@ -3,7 +3,7 @@
   "Version": 1,
   "VersionName": "1.0.0",
   "FriendlyName": "Codex Unreal Blueprint",
-  "Description": "UE4.27 Editor-only Blueprint automation bridge for Codex.",
+  "Description": "UE4.27 layered asset inspection and Blueprint automation bridge for Codex.",
   "Category": "Editor",
   "CreatedBy": "Aaalice233",
   "CanContainContent": false,
@@ -11,6 +11,12 @@
   "Installed": false,
   "EnabledByDefault": false,
   "EngineVersion": "4.27.0",
+  "Plugins": [
+    {
+      "Name": "Niagara",
+      "Enabled": true
+    }
+  ],
   "Modules": [
     {
       "Name": "CodexUnrealBlueprintCore",

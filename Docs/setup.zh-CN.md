@@ -1,6 +1,6 @@
 # 安装与本地开发
 
-要求 Windows、PowerShell 7、Node.js 22.19+、可实际运行的 Codex CLI、Visual Studio C++、UE4.27 和目标 `.uproject`。
+要求 Windows、PowerShell 7、Node.js 22.19+、.NET SDK 8+、可实际运行的 Codex CLI、Visual Studio C++、UE4.27 和目标 `.uproject`。首次使用离线 UAsset 解析器时会由 .NET SDK 构建，之后复用本机 NuGet 缓存。
 
 ```powershell
 npm install

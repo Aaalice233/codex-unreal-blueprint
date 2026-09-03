@@ -24,6 +24,7 @@ public class CodexUnrealBlueprintCore : ModuleRules
             "KismetCompiler",
             "MovieScene",
             "MovieSceneTracks",
+            "Niagara",
             "Projects",
             "SlateCore",
             "SourceControl",

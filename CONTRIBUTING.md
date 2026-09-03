@@ -2,12 +2,12 @@
 
 ## English
 
-Thank you for helping build `codex-unreal-blueprint`. The project is pre-v1 and follows `PLAN.md` as the authoritative product and completion specification.
+Thank you for helping build `codex-unreal-blueprint`. Architecture, public contracts, and completion criteria live in the paired documents under `Docs/`.
 
 ### Before opening a change
 
-1. Read `AGENTS.md`, the authoritative `PLAN.md`, and the [architecture](Docs/architecture.md).
-2. Keep v1 limited to UE4.27 Win64 and the Blueprint system. Propose unrelated domains separately; do not silently expand scope.
+1. Read `AGENTS.md`, the [architecture](Docs/architecture.md), [MCP reference](Docs/mcp-reference.md), and [release gate](Docs/v1-release-gate.md).
+2. Keep asset capability layers explicit: generic inspection, specialized semantic inspection, and fully verified editable support are different claims.
 3. Open an issue before changing a public protocol, Operation Registry contract, write/failure-reporting invariant, or release trust boundary.
 4. Never describe planned behavior as implemented. Update both English and Chinese user-facing documentation when behavior changes.
 
@@ -29,12 +29,12 @@ A PR may merge before all v1 capabilities exist, but it must not weaken the [v1 
 
 ## 简体中文
 
-感谢参与 `codex-unreal-blueprint`。项目当前处于 v1 之前，`PLAN.md` 是产品范围和完成标准的权威依据。
+感谢参与 `codex-unreal-blueprint`。架构、公共接口和完成标准分别由 `Docs/` 下的中英文配套文档约束。
 
 ### 修改前
 
-1. 阅读 `AGENTS.md`、作为唯一权威依据的 `PLAN.md` 和[架构](Docs/architecture.zh-CN.md)。
-2. v1 只覆盖 UE4.27 Win64 和 Blueprint 体系。无关领域单独提案，不得暗中扩范围。
+1. 阅读 `AGENTS.md`、[架构](Docs/architecture.zh-CN.md)、[MCP 参考](Docs/mcp-reference.zh-CN.md)和[发布门槛](Docs/v1-release-gate.zh-CN.md)。
+2. 明确区分通用检查、专用语义检查和具备完整验证闭环的可写支持，不得混淆能力声明。
 3. 修改公共协议、Operation Registry 契约、写入/失败报告不变量或发布信任边界前，先开 Issue 讨论。
 4. 不得把计划能力写成已经实现。面向用户的行为变化必须同步更新中英文文档。
 

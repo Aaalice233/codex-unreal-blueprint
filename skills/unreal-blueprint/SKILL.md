@@ -1,23 +1,63 @@
 ---
 name: unreal-blueprint
-description: Inspect, validate, apply, monitor, and verify UE4.27 Blueprint changes through the CodexUnrealBlueprint Editor plugin. Use for Blueprint assets, graphs, components, variables, UMG, AnimBlueprint, structs, enums, interfaces, and Blueprint libraries.
+description: Inspect UE4.27 assets online or offline and safely automate supported Blueprint writes. Use for arbitrary .uasset/.umap evidence, dependencies, referencers, comparisons, Blueprint graphs/components, UMG, AnimBlueprint, AnimMontage, Material, Material Instance, Niagara, structs, enums, interfaces, and Blueprint libraries.
 license: MIT
 metadata:
-  compatibility: Requires Windows, UE4.27, Codex, and a running Editor with CodexUnrealBlueprint enabled.
+  compatibility: Requires Windows, PowerShell 7, and .NET 8 for offline inspection; Editor-backed inspection and writes require UE4.27 with CodexUnrealBlueprint enabled.
 ---
 
-# Unreal Blueprint
+# Unreal assets and Blueprint automation
 
-Use the nine package tools instead of editing `.uasset` files directly.
+Use this package's twelve tools. Do not require or install a separate `inspect-unreal-uassets` skill.
+
+## Install or update
+
+When the tools are unavailable, the protocol or plugin version is stale, or the user asks to install/update this package:
+
+1. Work from the `codex-unreal-blueprint` source checkout that contains `scripts/setup.ps1`. Require Windows, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, UE4.27, and a working Codex CLI.
+2. Check whether the target `.uproject` is open in Unreal Editor. Do not terminate the Editor or discard unsaved work automatically; ask the user to close that Editor before installation. The installer intentionally refuses to overwrite a loaded UE plugin.
+3. From the repository root, run:
+
+   ```powershell
+   pwsh ./scripts/setup.ps1 `
+     -UProject E:/path/to/Project.uproject `
+     -EngineRoot E:/UE_4.27
+   ```
+
+   Add `-CodexExecutable C:/path/to/codex.exe` only when automatic Codex CLI discovery fails. Use `-Scope engine` only when the user explicitly wants an Engine-wide UE plugin instead of the default project installation.
+4. Let the script run the TypeScript checks, build the UE4.27 Win64 plugin, synchronize managed UE and Codex plugin files, and register the personal Marketplace entry. Do not replace this with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
+5. After success, restart Unreal Editor and create a new Codex task so the updated Skill and all twelve MCP tools are loaded. Re-run the same command for later updates; no separate asset-inspection skill is needed.
+
+Verify both paths after installation:
+
+- With the Editor closed, call `unreal_asset_inspect` with `mode: "offline"` and an absolute `filePath`; require `mode: "offline"`, `evidence: "serialized-package"`, and `facets.support.editable: false`.
+- With the target Editor open, call `unreal_status`, then `unreal_asset_inspect` with `mode: "editor"` and an Unreal `assetPath`; require the selected session and `mode: "editor"`.
+- To verify automatic routing, provide both `assetPath` and `filePath` with `mode: "auto"`. It must use the unique matching Editor or fall back offline only when no matching Editor exists; ambiguity must remain an error.
+
+## Choose the inspection layer
+
+1. Use `unreal_asset_inspect` for every asset type.
+2. Prefer `mode: "auto"` when both an Unreal object path and absolute asset file path are known. It uses a unique matching Editor and falls back to the bundled offline parser only when no matching Editor exists.
+3. Use `mode: "editor"` when current WidgetTree, AnimGraph, Material, Montage, Niagara, reflected values, or precise Asset Registry data matters.
+4. Use `mode: "offline"` when the Editor is closed or serialized disk evidence is specifically required. Offline results are read-only and do not prove runtime behavior.
+5. Read `facets.support`: `generic` applies to every loadable asset, `specialized` means a semantic inspector exists, and `editable` means the asset type is backed by the strict write pipeline.
+
+Use `unreal_asset_compare` for before/after or sibling assets. Use `unreal_asset_referencers` for references: Editor mode is authoritative Asset Registry evidence; offline mode is a bounded binary search and must be described as serialized string evidence.
+
+Specialized Editor inspection covers Blueprint/UMG/AnimBlueprint, AnimMontage sections/slots/notifies, Material parameters/expressions, and Niagara exposed parameters/emitters. Offline inspection additionally reconstructs locally available Blueprint inheritance/component trees and extracts UMG/Niagara serialized evidence where UAssetAPI can deserialize it.
+
+## Blueprint write workflow
 
 1. Call `unreal_status` or `unreal_doctor`, then select the exact `.uproject` and `editorSessionId`; never choose the first Editor when multiple sessions match.
 2. Call `unreal_search`, then `blueprint_capabilities` for the affected domain. The returned Operation Registry schema is authoritative; do not invent operation names or fields.
-3. Call `blueprint_inspect` for the required facets and retain every affected asset's structure hash.
+3. Call `blueprint_inspect` or Editor-backed `unreal_asset_inspect` and retain every affected asset's structure hash.
 4. Call `blueprint_validate` with the complete one-shot operation list. Validation does not create a persistent plan and does not modify assets.
 5. For a write, create one unique `requestId` and call `blueprint_apply` exactly once. No confirmation dialog is required.
 6. Use `blueprint_job` to query or wait. Cancel only when the reported phase is cancellation-safe. If the connection becomes uncertain, query the same `requestId`; never replay the write.
-7. Finish with `blueprint_verify` using explicit asset paths and structural expectations.
+7. Finish with `blueprint_verify`, then optionally use `unreal_asset_compare` against the offline or online baseline.
 
 A success claim requires the real Editor plugin result. Unknown operations or fields, ambiguous references, dirty packages, source-control rejection, protocol mismatch, missing Editor sessions, compile failures, and reload mismatches must remain explicit failures.
 
 If a failure reports `partial` or `stateUnknown`, return the exact `modified`, `saved`, `notSaved`, and `unknown` asset lists plus the plugin's Git/SVN inspection guidance. The package does not provide history, restore, package copies, or automatic source-control revert. The user decides whether to restore listed assets manually.
+
+Offline limitations must remain explicit: runtime code and Construction Script may override serialized defaults; cooked or unversioned packages may parse partially; Niagara compiled strings prove presence rather than execution; binary referencer matches require structured corroboration.

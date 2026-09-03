@@ -1,6 +1,6 @@
 # Setup and local development
 
-Requires Windows, PowerShell 7, Node.js 22.19+, a working Codex CLI, Visual Studio C++ tools, UE4.27, and a target `.uproject`.
+Requires Windows, PowerShell 7, Node.js 22.19+, .NET SDK 8+, a working Codex CLI, Visual Studio C++ tools, UE4.27, and a target `.uproject`. The .NET SDK builds the bundled offline UAsset parser on first use; its NuGet packages are then reused from the local cache.
 
 ```powershell
 npm install

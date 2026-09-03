@@ -2,9 +2,10 @@
 
 ## 权威范围
 
-- `PLAN.md` 是产品范围、架构、接口、安全、测试和 v1.0.0 完成标准的唯一权威依据。
-- 第一版必须完整交付 `PLAN.md` 的生产级能力，不得用 TODO、占位接口、模拟成功或静默降级冒充完成。
-- 首版仅支持 UE4.27 Win64 的完整 Blueprint 体系，不扩展到 Material、Niagara、Sequencer 或关卡 Actor 自动化。
+- `Docs/architecture.md`、`Docs/mcp-reference.md` 和 `Docs/v1-release-gate.md` 分别约束架构、公共接口和发布完成标准；不得另建版本化 Plan 文件形成第二事实来源。
+- 资产检查分为三层：所有 Unreal Package 的 `generic` 静态结构、已注册资产类型的 `specialized` 语义结构，以及具备完整安全闭环的 `editable` 写入。
+- 在线检查使用 UE4.27 Editor 原生 API；离线检查器随本插件安装并只提供序列化静态证据，不依赖外部 `inspect-unreal-uassets` skill。
+- 不得用 TODO、占位接口、模拟成功或静默降级冒充支持；`specialized` 和 `editable` 必须分别通过类型能力与验证结果明确声明。
 
 ## 已确认的产品行为
 
@@ -13,6 +14,7 @@
 - 本机 UE 集成测试默认使用 `E:/Master/LuaSocial.uproject`；产品开发任务获准自动操作 E:/Master 资产。
 - 自动测试默认在 `/Game/CodexAutomation/<runId>` 创建可清理 Fixture，除非测试明确指定其他目标。
 - UE 插件只提供状态栏图标和 Tooltip；完整工作流集中在 Codex Skill 和 MCP tools。
+- `unreal_asset_*` 的 `auto` 模式优先使用唯一匹配的 Editor；没有匹配 Editor 且具备完整文件参数时才回退到随包离线检查器，不得掩盖会话歧义。
 - 不引入需要长期维护的版本化 Plan 文件；批处理只接受当次普通 JSON 请求，Job Journal 仅保留幂等、状态查询、诊断和审计数据，不含资产副本。
 - UE 插件不依赖、不链接、不分发 AQ；所有产品能力使用 UE4.27 原生 Editor C++ API 独立实现。
 
