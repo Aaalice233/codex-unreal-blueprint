@@ -41,7 +41,7 @@ $required = @(
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath "$repo/$_" -PathType Leaf) })
 if ($missing.Count -gt 0) { throw "Release surface is incomplete: $($missing -join ', ')" }
 
-$scanRoots = @(".codex-plugin", "skills", "offline", "src", "scripts", "unreal", "Docs", "README.md", "README.zh-CN.md", "package.json")
+$scanRoots = @(".codex-plugin", "skills", "offline", "src", "scripts", "unreal", "Docs", "README.md", "README.zh-TW.md", "README.en.md", "package.json")
 $legacyPatterns = @(("Pi" + "UnrealBlueprint"), ("pi-unreal" + "-blueprint"), ("PI_UNREAL" + "_"), ("@earendil" + "-works"), ("Pi Ext" + "ension"))
 $legacyHits = @()
 foreach ($root in $scanRoots) {

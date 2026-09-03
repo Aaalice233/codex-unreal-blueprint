@@ -237,7 +237,7 @@ if (-not $CodexOnly) {
     }
     Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
 }
-$codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "offline", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "README.zh-CN.md")
+$codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "offline", "Docs/images/readme-banner.png", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "README.zh-TW.md", "README.en.md")
 $codexSourceFiles = Get-SourceFiles $script:Repo $codexIncludes
 $codexStage = New-CodexPluginInstallStage $codexSourceFiles
 $codexFiles = Get-SourceFiles $codexStage $codexIncludes
