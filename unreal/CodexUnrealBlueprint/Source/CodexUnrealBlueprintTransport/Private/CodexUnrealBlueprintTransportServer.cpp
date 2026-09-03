@@ -248,6 +248,8 @@ namespace CodexUnrealBlueprint
             , bStopping(false)
             , bAuthenticated(false)
             , bCloseAfterDrain(false)
+            , ConnectedAtSeconds(FPlatformTime::Seconds())
+            , LastActivitySeconds(ConnectedAtSeconds)
         {
         }
 
@@ -313,6 +315,20 @@ namespace CodexUnrealBlueprint
                     break;
                 }
 
+                const double NowSeconds = FPlatformTime::Seconds();
+                if (!bAuthenticated && NowSeconds - ConnectedAtSeconds >= FTransportLimits::AuthenticationTimeoutSeconds)
+                {
+                    QueueError(nullptr, EErrorCode::AuthenticationRequired,
+                        TEXT("Connection authentication timed out."), TEXT("FTransportConnection::Run"), true);
+                    continue;
+                }
+                if (bAuthenticated && NowSeconds - LastActivitySeconds >= FTransportLimits::IdleTimeoutSeconds)
+                {
+                    QueueError(nullptr, EErrorCode::TransportError,
+                        TEXT("Connection idle timeout expired."), TEXT("FTransportConnection::Run"), true);
+                    continue;
+                }
+
                 if (!Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(25)))
                 {
                     if (Socket->GetConnectionState() == SCS_ConnectionError)
@@ -323,6 +339,19 @@ namespace CodexUnrealBlueprint
                 }
 
                 uint32 PendingSize = 0;
+                if (!Socket->HasPendingData(PendingSize) || PendingSize == 0)
+                {
+                    // A graceful TCP close is reported as readable with zero queued bytes. Probe the socket so
+                    // the connection thread exits instead of spinning forever on the permanently readable EOF.
+                    uint8 Probe = 0;
+                    int32 ProbeBytes = 0;
+                    if (!Socket->Recv(&Probe, 1, ProbeBytes, ESocketReceiveFlags::Peek) || ProbeBytes <= 0)
+                    {
+                        bStopping = true;
+                        break;
+                    }
+                    PendingSize = static_cast<uint32>(ProbeBytes);
+                }
                 while (!bStopping && Socket->HasPendingData(PendingSize) && PendingSize > 0)
                 {
                     const int32 AvailableCapacity = MaxBufferedBytes - ReceiveBuffer.Num();
@@ -342,6 +371,7 @@ namespace CodexUnrealBlueprint
                         break;
                     }
                     ReceiveBuffer.SetNum(WriteOffset + BytesRead, false);
+                    LastActivitySeconds = FPlatformTime::Seconds();
                     DecodeFrames();
                     if (bCloseAfterDrain)
                     {
@@ -462,8 +492,13 @@ namespace CodexUnrealBlueprint
             AsyncTask(ENamedThreads::GameThread, [WeakConnection, Request]()
             {
                 const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> Connection = WeakConnection.Pin();
-                if (!Connection.IsValid() || !Connection->IsRunning())
+                if (!Connection.IsValid())
                 {
+                    return;
+                }
+                if (!Connection->IsRunning())
+                {
+                    Connection->PendingRequests.Release();
                     return;
                 }
                 check(IsInGameThread());
@@ -546,11 +581,13 @@ namespace CodexUnrealBlueprint
             while (!bStopping && Outgoing.Dequeue(Frame))
             {
                 int32 Offset = 0;
+                const double SendDeadlineSeconds = FPlatformTime::Seconds() + FTransportLimits::SendTimeoutSeconds;
                 while (!bStopping && Offset < Frame.Num())
                 {
                     if (!Socket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromMilliseconds(100)))
                     {
-                        if (Socket->GetConnectionState() == SCS_ConnectionError)
+                        if (Socket->GetConnectionState() == SCS_ConnectionError
+                            || FPlatformTime::Seconds() >= SendDeadlineSeconds)
                         {
                             bStopping = true;
                         }
@@ -563,6 +600,7 @@ namespace CodexUnrealBlueprint
                         break;
                     }
                     Offset += BytesSent;
+                    LastActivitySeconds = FPlatformTime::Seconds();
                 }
             }
         }
@@ -575,6 +613,8 @@ namespace CodexUnrealBlueprint
         FThreadSafeBool bStopping;
         FThreadSafeBool bAuthenticated;
         FThreadSafeBool bCloseAfterDrain;
+        double ConnectedAtSeconds;
+        double LastActivitySeconds;
         TArray<uint8> ReceiveBuffer;
         FBoundedTransportQueue Outgoing;
         FPendingRequestLimiter PendingRequests;
@@ -709,6 +749,19 @@ namespace CodexUnrealBlueprint
                 return false;
             }
 
+            {
+                FScopeLock Lock(&ConnectionsMutex);
+                // Count entries awaiting the cleanup tick as well, otherwise rapid connect/disconnect traffic
+                // can allocate an unbounded number of connection objects inside one tick interval.
+                if (Connections.Num() >= FTransportLimits::MaxConnections)
+                {
+                    UE_LOG(LogCodexUnrealBlueprintServer, Warning,
+                        TEXT("Rejected loopback connection because the %d-connection limit was reached."),
+                        FTransportLimits::MaxConnections);
+                    return false;
+                }
+            }
+
             const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> Connection = MakeShared<FTransportConnection, ESPMode::ThreadSafe>(
                 ClientSocket,
                 EditorSessionId,
@@ -768,6 +821,20 @@ namespace CodexUnrealBlueprint
         {
             FScopeLock Lock(&StateMutex);
             return State;
+        }
+
+        int32 GetConnectionCount() const
+        {
+            FScopeLock Lock(&ConnectionsMutex);
+            int32 RunningConnections = 0;
+            for (const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe>& Connection : Connections)
+            {
+                if (Connection.IsValid() && Connection->IsRunning())
+                {
+                    ++RunningConnections;
+                }
+            }
+            return RunningConnections;
         }
 
         void SetState(const EServiceState NewState, const FProtocolError& Error = FProtocolError())
@@ -934,6 +1001,11 @@ namespace CodexUnrealBlueprint
     int32 FTransportServer::GetPort() const
     {
         return Impl->Port;
+    }
+
+    int32 FTransportServer::GetConnectionCount() const
+    {
+        return Impl->GetConnectionCount();
     }
 
     FString FTransportServer::GetEditorSessionId() const

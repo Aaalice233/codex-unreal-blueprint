@@ -16,4 +16,6 @@
 
 `blueprint_job wait` 的 `timeoutMs` 范围为 0–600000；MCP 宿主超时为 620 秒。所有成功结果同时出现在文本与 `structuredContent.result`。失败结果位于 `structuredContent.error`，包含稳定错误码及可用的资产、operation、callsite、编译和部分失败信息。
 
+`unreal_status` 在唯一匹配时返回 `connected: true` 和精确的 `session` 元数据，并保持 UE 状态字段位于结果顶层。会话发现只读取当前进程的描述文件；实际 RPC 连接负责认证和可用性验证，不再额外创建端口探测连接。
+
 English: [mcp-reference.md](mcp-reference.md)

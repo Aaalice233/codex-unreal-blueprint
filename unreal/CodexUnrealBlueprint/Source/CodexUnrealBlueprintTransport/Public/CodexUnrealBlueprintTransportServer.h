@@ -23,6 +23,7 @@ namespace CodexUnrealBlueprint
 
         EServiceState GetState() const;
         int32 GetPort() const;
+        int32 GetConnectionCount() const;
         FString GetEditorSessionId() const;
         FString GetAuthToken() const;
         FString GetSessionDescriptorPath() const;

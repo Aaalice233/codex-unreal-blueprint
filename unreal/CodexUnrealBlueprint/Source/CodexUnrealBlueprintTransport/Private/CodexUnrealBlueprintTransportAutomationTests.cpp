@@ -47,6 +47,7 @@ namespace CodexUnrealBlueprint
             TArray<uint8> ReceiveBuffer;
             double Deadline = 0.0;
             int32 Phase = 0;
+            int32 Iteration = 0;
 
             ~FTransportAutomationFixture()
             {
@@ -148,6 +149,92 @@ namespace CodexUnrealBlueprint
 
     bool FPollCodexTransportRpc::Update()
     {
+        if (Fixture->Phase == 3)
+        {
+            if (Fixture->Server->GetState() == EServiceState::Listening)
+            {
+                return true;
+            }
+            if (FPlatformTime::Seconds() > Fixture->Deadline)
+            {
+                Test->AddError(TEXT("The server did not reclaim a gracefully disconnected authenticated client."));
+                return true;
+            }
+            return false;
+        }
+        if (Fixture->Phase == 4)
+        {
+            if (Fixture->Server->GetConnectionCount() > 0)
+            {
+                Fixture->ClientSocket->Close();
+                ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(Fixture->ClientSocket);
+                Fixture->ClientSocket = nullptr;
+                Fixture->Phase = 5;
+                Fixture->Deadline = FPlatformTime::Seconds() + 2.0;
+                return false;
+            }
+            if (FPlatformTime::Seconds() > Fixture->Deadline)
+            {
+                Test->AddError(TEXT("The server did not accept the probe connection."));
+                return true;
+            }
+            return false;
+        }
+        if (Fixture->Phase == 5)
+        {
+            if (Fixture->Server->GetConnectionCount() == 0)
+            {
+                if (Fixture->Iteration >= 16)
+                {
+                    return true;
+                }
+                FString ConnectError;
+                if (!ConnectClient(*Fixture, ConnectError))
+                {
+                    Test->AddError(ConnectError);
+                    return true;
+                }
+                ++Fixture->Iteration;
+                Fixture->Phase = 4;
+                Fixture->Deadline = FPlatformTime::Seconds() + 2.0;
+                return false;
+            }
+            if (FPlatformTime::Seconds() > Fixture->Deadline)
+            {
+                Test->AddError(TEXT("A client that disconnected before authentication left a running server thread."));
+                return true;
+            }
+            return false;
+        }
+        if (Fixture->Phase == 6)
+        {
+            if (Fixture->Server->GetConnectionCount() > 0)
+            {
+                Fixture->Phase = 7;
+                Fixture->Deadline = FPlatformTime::Seconds() + FTransportLimits::AuthenticationTimeoutSeconds + 2.0;
+                return false;
+            }
+            if (FPlatformTime::Seconds() > Fixture->Deadline)
+            {
+                Test->AddError(TEXT("The server did not accept the unauthenticated client."));
+                return true;
+            }
+            return false;
+        }
+        if (Fixture->Phase == 7)
+        {
+            if (Fixture->Server->GetConnectionCount() == 0)
+            {
+                return true;
+            }
+            if (FPlatformTime::Seconds() > Fixture->Deadline)
+            {
+                Test->AddError(TEXT("An unauthenticated connection exceeded its authentication deadline."));
+                return true;
+            }
+            return false;
+        }
+
         FString Json;
         FString Error;
         if (!TryReceiveJson(*Fixture, Json, Error))
@@ -241,8 +328,11 @@ namespace CodexUnrealBlueprint
             Test->TestEqual(TEXT("Status reports an authenticated connection"), (*Result)->GetStringField(TEXT("serviceState")), FString(TEXT("Connected")));
         }
         Fixture->ClientSocket->Close();
-        Fixture->Server->Stop();
-        return true;
+        ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(Fixture->ClientSocket);
+        Fixture->ClientSocket = nullptr;
+        Fixture->Phase = 3;
+        Fixture->Deadline = FPlatformTime::Seconds() + 2.0;
+        return false;
     }
 
     bool FCodexTransportRealRpcTest::RunTest(const FString& Parameters)
@@ -274,6 +364,65 @@ namespace CodexUnrealBlueprint
             return false;
         }
         Fixture->Deadline = FPlatformTime::Seconds() + 5.0;
+        ADD_LATENT_AUTOMATION_COMMAND(FPollCodexTransportRpc(Fixture, this));
+        return true;
+    }
+
+    IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexTransportProbeDisconnectTest,
+        "CodexUnrealBlueprint.Transport.RepeatedProbeDisconnectsAreReclaimed",
+        EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+    bool FCodexTransportProbeDisconnectTest::RunTest(const FString& Parameters)
+    {
+        TSharedPtr<FTransportAutomationFixture> Fixture = MakeShared<FTransportAutomationFixture>();
+        Fixture->Server = MakeUnique<FTransportServer>();
+        FTransportServerConfig Config;
+        Config.bWriteSessionDescriptor = false;
+        FProtocolError StartError;
+        if (!TestTrue(TEXT("A real test server starts"), Fixture->Server->Start(Config, StartError)))
+        {
+            AddError(StartError.Message);
+            return false;
+        }
+
+        FString ConnectError;
+        if (!TestTrue(TEXT("An unauthenticated probe connects"), ConnectClient(*Fixture, ConnectError)))
+        {
+            AddError(ConnectError);
+            return false;
+        }
+        Fixture->Phase = 4;
+        Fixture->Iteration = 1;
+        Fixture->Deadline = FPlatformTime::Seconds() + 2.0;
+        ADD_LATENT_AUTOMATION_COMMAND(FPollCodexTransportRpc(Fixture, this));
+        return true;
+    }
+
+    IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexTransportAuthenticationTimeoutTest,
+        "CodexUnrealBlueprint.Transport.UnauthenticatedConnectionTimesOut",
+        EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+    bool FCodexTransportAuthenticationTimeoutTest::RunTest(const FString& Parameters)
+    {
+        TSharedPtr<FTransportAutomationFixture> Fixture = MakeShared<FTransportAutomationFixture>();
+        Fixture->Server = MakeUnique<FTransportServer>();
+        FTransportServerConfig Config;
+        Config.bWriteSessionDescriptor = false;
+        FProtocolError StartError;
+        if (!TestTrue(TEXT("A real test server starts"), Fixture->Server->Start(Config, StartError)))
+        {
+            AddError(StartError.Message);
+            return false;
+        }
+
+        FString ConnectError;
+        if (!TestTrue(TEXT("An unauthenticated client connects"), ConnectClient(*Fixture, ConnectError)))
+        {
+            AddError(ConnectError);
+            return false;
+        }
+        Fixture->Phase = 6;
+        Fixture->Deadline = FPlatformTime::Seconds() + 2.0;
         ADD_LATENT_AUTOMATION_COMMAND(FPollCodexTransportRpc(Fixture, this));
         return true;
     }

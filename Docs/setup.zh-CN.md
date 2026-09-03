@@ -7,7 +7,9 @@ npm install
 pwsh ./scripts/setup.ps1 -UProject E:/Master/LuaSocial.uproject -EngineRoot E:/UE_4.27 -CodexExecutable C:/path/to/codex.exe
 ```
 
-`setup.ps1` 会执行 `codex --version`，因此损坏的 npm shim 不会被误判为可用。脚本构建 `dist/mcp/index.js`，构建 Win64 UE plugin，以受管 manifest 同步到项目或 Engine plugin 目录，并把 Codex plugin 安装到个人 Marketplace。重复运行只覆盖受管文件，保留 Marketplace 其他条目和所有非受管文件。
+`setup.ps1` 会执行 `codex --version`，因此损坏的 npm shim 不会被误判为可用。脚本构建 `dist/mcp/index.js`，构建 Win64 UE plugin，将本次验证通过的 DLL 和源码一起通过受管 manifest 同步到项目或 Engine plugin 目录，并把 Codex plugin 安装到个人 Marketplace。重复运行只覆盖受管文件，保留 Marketplace 其他条目和所有非受管文件。
+
+每次安装会给 Codex plugin 的安装副本生成新的 `+codex.<timestamp>` cachebuster，不改仓库中的发布版本。这样正在使用的旧缓存不会被原地覆盖；重启 Codex 并新建 task 后才会加载新版本。
 
 若目标 Editor 正在加载插件，脚本在覆盖任何 UE 文件前失败。关闭 Editor 后重试。可用 `-SkipUnrealBuild` 做不含 C++ 构建的脚本测试，用 `-DryRun` 检查路径和命令计划。
 

@@ -54,7 +54,16 @@ describe("PowerShell development workflow", () => {
     const source = readFileSync(setupScript, "utf8");
     expect(source).toContain("Resolve-ManagedPath");
     expect(source).toContain("目标存在非受管同名文件");
+    expect(source).toContain('$oldByPath.ContainsKey("CodexUnrealBlueprint.uplugin")');
+    expect(source).toContain('$file.path.StartsWith("Binaries/"');
+    expect(source).toContain('New-CodexPluginInstallStage');
+    expect(source).toContain('$manifest.version = "$baseVersion+codex.$cachebuster"');
+    expect(source).toContain('$matching.Count -eq 1');
     expect(source.indexOf("Assert-EditorClosed $settings")).toBeLessThan(source.indexOf("Sync-ManagedDirectory $settings.uePluginTarget"));
+    expect(source).toContain('Get-SourceFiles $packageRoot @("Binaries")');
+    expect(source).toContain('Get-SourceFiles $settings.uePluginTarget @("Binaries")');
+    expect(source.indexOf('Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat"'))
+      .toBeLessThan(source.indexOf('Get-SourceFiles $packageRoot @("Binaries")'));
     for (const forbidden of ["reset --hard", "git clean", "git stash", "push --force"]) expect(source).not.toContain(forbidden);
   });
 });

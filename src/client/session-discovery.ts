@@ -1,5 +1,4 @@
 import { readdir, readFile } from "node:fs/promises";
-import { createConnection } from "node:net";
 import { join, win32 } from "node:path";
 import { ERROR_CODES, UnrealBlueprintError } from "../shared/errors.js";
 import { isJsonObject, type JsonObject } from "../shared/json.js";
@@ -28,7 +27,6 @@ export interface SessionQuery {
 export interface DiscoveryOptions {
   readonly sessionsDirectory?: string;
   readonly isProcessAlive?: (pid: number) => boolean;
-  readonly isSessionReachable?: (session: EditorSession) => Promise<boolean>;
   readonly readSessionFile?: (descriptorPath: string) => Promise<string>;
 }
 
@@ -68,20 +66,10 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
-function sessionIsReachable(session: EditorSession): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: session.host, port: session.port });
-    let settled = false;
-    const finish = (reachable: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(reachable);
-    };
-    socket.setTimeout(250, () => finish(false));
-    socket.once("connect", () => finish(true));
-    socket.once("error", () => finish(false));
-  });
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new UnrealBlueprintError(ERROR_CODES.REQUEST_ABORTED, "Unreal Editor session discovery was aborted");
+  }
 }
 
 function requireString(object: JsonObject, key: string): string {
@@ -136,17 +124,18 @@ function matchesQuery(session: EditorSession, query: SessionQuery, canonicalQuer
   return canonicalQueryUproject === undefined || canonicalizeUproject(session.uproject) === canonicalQueryUproject;
 }
 
-async function scanSessions(query: SessionQuery, options: DiscoveryOptions): Promise<DiscoveryScan> {
+async function scanSessions(query: SessionQuery, options: DiscoveryOptions, signal?: AbortSignal): Promise<DiscoveryScan> {
+  throwIfAborted(signal);
   const directory = options.sessionsDirectory ?? defaultSessionsDirectory();
   const alive = options.isProcessAlive ?? processIsAlive;
-  // Injected PID checks are used by deterministic unit tests; production discovery also proves the descriptor port is live.
-  const reachable = options.isSessionReachable ?? (options.isProcessAlive ? async () => true : sessionIsReachable);
   const readDescriptor = options.readSessionFile ?? ((path: string) => readFile(path, "utf8"));
   const canonicalQueryUproject = query.uproject === undefined ? undefined : canonicalizeUproject(query.uproject);
   let names: string[];
   try {
     names = (await readdir(directory)).filter((name) => name.toLowerCase().endsWith(".json")).sort();
+    throwIfAborted(signal);
   } catch (error) {
+    if (error instanceof UnrealBlueprintError && error.code === ERROR_CODES.REQUEST_ABORTED) throw error;
     if (isNodeError(error) && error.code === "ENOENT") return { directory, sessions: [], stale: [], invalid: [], descriptorCount: 0 };
     throw new UnrealBlueprintError(ERROR_CODES.SESSION_DIRECTORY_UNAVAILABLE, `Cannot read session directory: ${directory}`, { cause: error });
   }
@@ -155,16 +144,20 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions): Pro
   const stale: EditorSession[] = [];
   const invalid: string[] = [];
   for (const name of names) {
+    throwIfAborted(signal);
     const descriptorPath = join(directory, name);
     try {
-      const session = parseSession(JSON.parse(await readDescriptor(descriptorPath)), descriptorPath);
+      const descriptor = await readDescriptor(descriptorPath);
+      throwIfAborted(signal);
+      const session = parseSession(JSON.parse(descriptor), descriptorPath);
       if (!matchesQuery(session, query, canonicalQueryUproject)) continue;
-      if (!alive(session.pid) || !(await reachable(session))) {
+      if (!alive(session.pid)) {
         stale.push(session);
         continue;
       }
       sessions.push(session);
     } catch (error) {
+      if (error instanceof UnrealBlueprintError && error.code === ERROR_CODES.REQUEST_ABORTED) throw error;
       invalid.push(`${name}: ${error instanceof Error ? error.message : "invalid descriptor"}`);
     }
   }
@@ -172,8 +165,8 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions): Pro
   return { directory, sessions, stale, invalid, descriptorCount: names.length };
 }
 
-export async function discoverSessions(query: SessionQuery = {}, options: DiscoveryOptions = {}): Promise<EditorSession[]> {
-  const scan = await scanSessions(query, options);
+export async function discoverSessions(query: SessionQuery = {}, options: DiscoveryOptions = {}, signal?: AbortSignal): Promise<EditorSession[]> {
+  const scan = await scanSessions(query, options, signal);
   if (scan.sessions.length === 0 && scan.invalid.length > 0 && scan.invalid.length === scan.descriptorCount) {
     throw new UnrealBlueprintError(ERROR_CODES.SESSION_INVALID, "No valid Unreal Editor session descriptors were found", {
       context: { details: { directory: scan.directory, invalid: scan.invalid } }
@@ -182,8 +175,8 @@ export async function discoverSessions(query: SessionQuery = {}, options: Discov
   return scan.sessions;
 }
 
-export async function selectSession(query: SessionQuery = {}, options: DiscoveryOptions = {}): Promise<EditorSession> {
-  const scan = await scanSessions(query, options);
+export async function selectSession(query: SessionQuery = {}, options: DiscoveryOptions = {}, signal?: AbortSignal): Promise<EditorSession> {
+  const scan = await scanSessions(query, options, signal);
   if (scan.sessions.length === 0) {
     if (scan.stale.length > 0) {
       throw new UnrealBlueprintError(ERROR_CODES.SESSION_STALE, "Matching Unreal Editor session descriptors refer to exited processes", {

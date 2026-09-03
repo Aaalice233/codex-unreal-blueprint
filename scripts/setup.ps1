@@ -105,7 +105,7 @@ function Get-SourceFiles([string]$Source, [string[]]$Includes) {
     foreach ($include in $Includes) {
         $path = Join-Path $Source $include
         if (-not (Test-Path -LiteralPath $path)) { throw "安装源缺少：$include" }
-        $items = if (Test-Path -LiteralPath $path -PathType Leaf) { @(Get-Item -LiteralPath $path) } else { @(Get-ChildItem -LiteralPath $path -File -Recurse | Where-Object { $_.FullName -notmatch "[\\/](Binaries|Intermediate|Saved|DerivedDataCache)[\\/]" }) }
+        $items = if (Test-Path -LiteralPath $path -PathType Leaf) { @(Get-Item -LiteralPath $path) } else { @(Get-ChildItem -LiteralPath $path -File -Recurse | Where-Object { $_.FullName -notmatch "[\\/](Intermediate|Saved|DerivedDataCache)[\\/]" }) }
         foreach ($item in $items) {
             $full = Normalize-Path $item.FullName
             $result += [pscustomobject]@{ path = $full.Substring($sourceRoot.Length); source = $full; sha256 = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -131,11 +131,13 @@ function Sync-ManagedDirectory([string]$Target, [object[]]$Files) {
     }
     $newByPath = @{}; foreach ($file in $Files) { $newByPath[$file.path] = $file }
     $oldByPath = @{}; foreach ($file in $oldFiles) { [void](Resolve-ManagedPath $Target ([string]$file.path)); $oldByPath[[string]$file.path] = $file }
+    $canAdoptGeneratedBinaries = $oldByPath.ContainsKey("CodexUnrealBlueprint.uplugin")
     foreach ($file in $Files) {
         $destination = Resolve-ManagedPath $Target $file.path
         if ((Test-Path -LiteralPath $destination -PathType Leaf) -and -not $oldByPath.ContainsKey($file.path)) {
             $currentHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($currentHash -ne $file.sha256) { throw "目标存在非受管同名文件，拒绝覆盖：$destination" }
+            $isGeneratedPluginBinary = $canAdoptGeneratedBinaries -and $file.path.StartsWith("Binaries/", [System.StringComparison]::OrdinalIgnoreCase)
+            if ($currentHash -ne $file.sha256 -and -not $isGeneratedPluginBinary) { throw "目标存在非受管同名文件，拒绝覆盖：$destination" }
         }
     }
     if ($DryRun) { Write-Step "DRY-RUN: 同步 $($Files.Count) 个受管文件到 $Target，并保留非受管文件"; return }
@@ -146,7 +148,9 @@ function Sync-ManagedDirectory([string]$Target, [object[]]$Files) {
     foreach ($file in $Files) {
         $destination = Resolve-ManagedPath $Target $file.path
         [void](New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force)
-        Copy-Item -LiteralPath $file.source -Destination $destination -Force
+        if (-not [string]::Equals((Normalize-Path $file.source), $destination, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Copy-Item -LiteralPath $file.source -Destination $destination -Force
+        }
         if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) { throw "复制后哈希校验失败：$($file.path)" }
     }
     $manifest = [ordered]@{ version = 1; generatedAtUtc = [DateTime]::UtcNow.ToString("o"); files = @($Files | ForEach-Object { [ordered]@{ path = $_.path; sha256 = $_.sha256 } }) }
@@ -160,31 +164,48 @@ function Assert-EditorClosed($Settings) {
     if ($running.Count -gt 0) { throw "检测到 $projectName 的 Editor 正在加载插件。未覆盖任何 UE 文件；请关闭 Editor 后重试。" }
 }
 
+function New-CodexPluginInstallStage([object[]]$Files) {
+    if ($DryRun) { return $script:Repo }
+    $stage = Normalize-Path "$script:Repo/artifacts/codex-plugin-install"
+    $artifactsRoot = (Normalize-Path "$script:Repo/artifacts") + "/"
+    if (-not $stage.StartsWith($artifactsRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Codex plugin 暂存目录不安全：$stage" }
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    [void](New-Item -ItemType Directory -Path $stage -Force)
+    foreach ($file in $Files) {
+        $destination = Resolve-ManagedPath $stage $file.path
+        [void](New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force)
+        Copy-Item -LiteralPath $file.source -Destination $destination -Force
+    }
+
+    $manifestPath = "$stage/.codex-plugin/plugin.json"
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not ($manifest.version -is [string]) -or [string]::IsNullOrWhiteSpace($manifest.version)) { throw "Codex plugin manifest 缺少 version。" }
+    $baseVersion = ([string]$manifest.version -split "\+", 2)[0]
+    $cachebuster = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
+    $manifest.version = "$baseVersion+codex.$cachebuster"
+    [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 10) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    return $stage
+}
+
 function Update-PersonalMarketplace($Settings) {
     $path = $Settings.marketplacePath
     if ($DryRun) { Write-Step "DRY-RUN: 保留现有条目并更新个人 Marketplace：$path"; return "personal" }
     if (Test-Path -LiteralPath $path -PathType Leaf) { $marketplace = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json }
     else { $marketplace = [pscustomobject]@{ name = "personal"; interface = [pscustomobject]@{ displayName = "Personal" }; plugins = @() } }
     if (-not ($marketplace.name -is [string]) -or [string]::IsNullOrWhiteSpace($marketplace.name)) { throw "Marketplace 缺少有效 name。" }
-    $entries = @($marketplace.plugins | Where-Object { $_.name -ne "codex-unreal-blueprint" })
-    $entries += [pscustomobject]@{ name = "codex-unreal-blueprint"; source = [pscustomobject]@{ source = "local"; path = "./plugins/codex-unreal-blueprint" }; policy = [pscustomobject]@{ installation = "AVAILABLE"; authentication = "ON_INSTALL" }; category = "Developer Tools" }
-    $marketplace.plugins = $entries
+    $matching = @($marketplace.plugins | Where-Object { $_.name -eq "codex-unreal-blueprint" })
+    if ($matching.Count -gt 1) { throw "Marketplace 中存在重复的 codex-unreal-blueprint 条目。" }
+    if ($matching.Count -eq 1) {
+        $entry = $matching[0]
+        if ($entry.source.source -ne "local" -or $entry.source.path -ne "./plugins/codex-unreal-blueprint") {
+            throw "Marketplace 中现有 codex-unreal-blueprint 条目没有指向受管的本地插件目录。"
+        }
+        return [string]$marketplace.name
+    }
+    $marketplace.plugins = @($marketplace.plugins) + [pscustomobject]@{ name = "codex-unreal-blueprint"; source = [pscustomobject]@{ source = "local"; path = "./plugins/codex-unreal-blueprint" }; policy = [pscustomobject]@{ installation = "AVAILABLE"; authentication = "ON_INSTALL" }; category = "Developer Tools" }
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force)
     [System.IO.File]::WriteAllText($path, ($marketplace | ConvertTo-Json -Depth 8) + "`n", [System.Text.UTF8Encoding]::new($false))
     return [string]$marketplace.name
-}
-
-function Test-CodexCacheCurrent([object[]]$Files, [string]$MarketplaceName) {
-    if ($DryRun) { return $false }
-    $version = [string](Get-Content -LiteralPath "$script:Repo/package.json" -Raw -Encoding UTF8 | ConvertFrom-Json).version
-    $cacheRoot = Normalize-Path (Join-Path $env:USERPROFILE ".codex/plugins/cache/$MarketplaceName/codex-unreal-blueprint/$version")
-    if (-not (Test-Path -LiteralPath $cacheRoot -PathType Container)) { return $false }
-    foreach ($file in $Files) {
-        $cached = Resolve-ManagedPath $cacheRoot $file.path
-        if (-not (Test-Path -LiteralPath $cached -PathType Leaf)) { return $false }
-        if ((Get-FileHash -LiteralPath $cached -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256) { return $false }
-    }
-    return $true
 }
 
 $settings = Get-Settings
@@ -197,14 +218,23 @@ if (-not $SkipUnrealBuild) {
 }
 Assert-EditorClosed $settings
 $ueFiles = Get-SourceFiles "$script:Repo/unreal/CodexUnrealBlueprint" @("Config", "Source", "CodexUnrealBlueprint.uplugin", "README.md")
+if (-not $SkipUnrealBuild) {
+    # Install the exact DLLs produced by the validated BuildPlugin run. Copying only source would leave an
+    # older binary active until the project happened to rebuild the plugin itself.
+    $ueFiles += Get-SourceFiles $packageRoot @("Binaries")
+    $ueFiles = @($ueFiles | Sort-Object path -Unique)
+}
+elseif (Test-Path -LiteralPath "$($settings.uePluginTarget)/Binaries" -PathType Container) {
+    # A source-only maintenance run must not make previously installed, managed DLLs disappear.
+    $ueFiles += Get-SourceFiles $settings.uePluginTarget @("Binaries")
+    $ueFiles = @($ueFiles | Sort-Object path -Unique)
+}
 Sync-ManagedDirectory $settings.uePluginTarget $ueFiles
-$codexFiles = Get-SourceFiles $script:Repo @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "LICENSE", "README.md", "README.zh-CN.md")
+$codexIncludes = @(".codex-plugin", ".mcp.json", "dist/mcp/index.js", "skills", "LICENSE", "README.md", "README.zh-CN.md")
+$codexSourceFiles = Get-SourceFiles $script:Repo $codexIncludes
+$codexStage = New-CodexPluginInstallStage $codexSourceFiles
+$codexFiles = Get-SourceFiles $codexStage $codexIncludes
 Sync-ManagedDirectory $settings.codexPluginTarget $codexFiles
 $marketplaceName = Update-PersonalMarketplace $settings
-if (Test-CodexCacheCurrent $codexFiles $marketplaceName) {
-    Write-Step "Codex plugin cache 已是当前版本，无需在运行中的 Codex 内重复安装。"
-}
-else {
-    Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
-}
+Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
 Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和九个 MCP tools。"

@@ -101,7 +101,7 @@ describe("RPC client", () => {
     await expect(RpcClient.connect(incompatible)).rejects.toMatchObject({ code: "PROTOCOL_MISMATCH" });
   });
 
-  it("times out a request, drops its late response, and keeps later requests valid", async () => {
+  it("times out a request and closes the transport so late responses cannot leak into later work", async () => {
     const port = await listen((socket) => {
       const decoder = new FrameDecoder();
       socket.on("data", (chunk) => {
@@ -119,7 +119,7 @@ describe("RPC client", () => {
     client = await RpcClient.connect(session(port));
     await expect(client.request("slow.request", {}, { timeoutMs: 10 }))
       .rejects.toMatchObject({ code: "REQUEST_TIMEOUT", retryable: true });
-    await expect(client.request("unreal.status")).resolves.toEqual({ method: "unreal.status" });
+    await expect(client.request("unreal.status")).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
     expect(client.negotiatedProtocolVersion).toBe("1.2.0");
   });
 
@@ -137,6 +137,15 @@ describe("RPC client", () => {
     client = await RpcClient.connect(session(port));
     const controller = new AbortController();
     const pending = client.request("unreal.search", {}, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "REQUEST_ABORTED" });
+    await expect(client.request("unreal.status")).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
+  });
+
+  it("cancels authentication and destroys the half-open connection", async () => {
+    const port = await listen(() => undefined);
+    const controller = new AbortController();
+    const pending = RpcClient.connect(session(port), {}, controller.signal);
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: "REQUEST_ABORTED" });
   });
@@ -162,7 +171,11 @@ describe("RPC client", () => {
 
   it("refuses two live Editors until an explicit session is selected", async () => {
     const directory = await mkdtemp(join(tmpdir(), "codex-ubp-live-editors-"));
-    const editors = [createServer(handleSocket), createServer(handleSocket)];
+    let acceptedConnections = 0;
+    const editors = [0, 1].map(() => createServer((socket) => {
+      acceptedConnections += 1;
+      handleSocket(socket);
+    }));
     let selected: UnrealClient | undefined;
     try {
       await Promise.all(editors.map((editor) => new Promise<void>((resolve) => editor.listen(0, "127.0.0.1", resolve))));
@@ -182,6 +195,7 @@ describe("RPC client", () => {
 
       selected = await UnrealClient.connect({ session: { editorSessionId: "editor-1" }, discovery });
       await expect(selected.invoke("unreal_status", {})).resolves.toMatchObject({ echoedMethod: "unreal.status" });
+      expect(acceptedConnections).toBe(1);
     } finally {
       selected?.close();
       await Promise.all(editors.map((editor) => new Promise<void>((resolve) => editor.close(() => resolve()))));

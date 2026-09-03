@@ -16,4 +16,6 @@ Every tool accepts optional `session: { editorSessionId?, uproject? }`. An exact
 
 `blueprint_job wait` accepts `timeoutMs` from 0 through 600000; the MCP host timeout is 620 seconds. Successful results appear in both text and `structuredContent.result`. Failures use `structuredContent.error` with stable codes and available asset, operation, callsite, compiler, and partial-failure details.
 
+When exactly one Editor matches, `unreal_status` returns `connected: true` and exact `session` metadata while keeping UE status fields at the result root. Discovery reads live-process descriptors only; the authenticated RPC connection verifies availability without opening a separate port-probe connection.
+
 中文：[mcp-reference.zh-CN.md](mcp-reference.zh-CN.md)

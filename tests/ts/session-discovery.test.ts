@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,6 +53,33 @@ describe("Editor session discovery", () => {
     const directory = await fixture();
     await writeSession(directory, "one");
     expect(await discoverSessions({}, { sessionsDirectory: directory, isProcessAlive: () => false })).toEqual([]);
+  });
+
+  it("honors cancellation without opening a transport connection", async () => {
+    const directory = await fixture();
+    await writeSession(directory, "one");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(discoverSessions(
+      {},
+      { sessionsDirectory: directory, isProcessAlive: () => true },
+      controller.signal
+    )).rejects.toMatchObject({ code: "REQUEST_ABORTED" } satisfies Partial<UnrealBlueprintError>);
+  });
+
+  it("does not turn cancellation during descriptor IO into a malformed-descriptor error", async () => {
+    const directory = await fixture();
+    await writeSession(directory, "one");
+    const controller = new AbortController();
+    await expect(discoverSessions({}, {
+      sessionsDirectory: directory,
+      isProcessAlive: () => true,
+      readSessionFile: async (path) => {
+        const descriptor = await readFile(path, "utf8");
+        controller.abort();
+        return descriptor;
+      }
+    }, controller.signal)).rejects.toMatchObject({ code: "REQUEST_ABORTED" } satisfies Partial<UnrealBlueprintError>);
   });
 
   it("requires explicit selection when multiple Editors match", async () => {

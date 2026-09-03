@@ -7,10 +7,14 @@ namespace CodexUnrealBlueprint
 {
     struct FTransportLimits
     {
+        static constexpr int32 MaxConnections = 16;
         static constexpr int32 MaxPendingRequestsPerConnection = 64;
         static constexpr int32 MaxOutgoingMessagesPerConnection = 256;
         static constexpr int32 MaxOutgoingBytesPerConnection = 16 * 1024 * 1024;
         static constexpr int32 MaxEmergencyFrameBytes = 64 * 1024;
+        static constexpr double AuthenticationTimeoutSeconds = 5.0;
+        static constexpr double IdleTimeoutSeconds = 15.0 * 60.0;
+        static constexpr double SendTimeoutSeconds = 15.0;
     };
 
     class FBoundedTransportQueue

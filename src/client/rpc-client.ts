@@ -65,25 +65,44 @@ export class RpcClient {
     });
   }
 
-  static async connect(session: EditorSession, options: RpcClientOptions = {}): Promise<RpcClient> {
+  static async connect(session: EditorSession, options: RpcClientOptions = {}, signal?: AbortSignal): Promise<RpcClient> {
     negotiateProtocolVersion(CLIENT_PROTOCOL_VERSION, session.protocolVersion);
+    if (signal?.aborted) {
+      throw new UnrealBlueprintError(ERROR_CODES.REQUEST_ABORTED, "Unreal Editor connection was aborted");
+    }
     const timeoutMs = requireTimeout(options.connectTimeoutMs ?? 3_000, "connectTimeoutMs");
     const socket = await new Promise<Socket>((resolve, reject) => {
       const candidate = createConnection({ host: session.host, port: session.port });
-      const onError = (error: Error): void => {
+      let settled = false;
+      const cleanup = (): void => {
         clearTimeout(timeout);
-        reject(new UnrealBlueprintError(ERROR_CODES.CONNECTION_FAILED, `Cannot connect to Unreal Editor at ${session.host}:${session.port}: ${error.message}`, { retryable: true, cause: error }));
+        candidate.removeListener("connect", onConnect);
+        candidate.removeListener("error", onError);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const fail = (error: UnrealBlueprintError): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        candidate.destroy();
+        reject(error);
+      };
+      const onError = (error: Error): void => {
+        fail(new UnrealBlueprintError(ERROR_CODES.CONNECTION_FAILED, `Cannot connect to Unreal Editor at ${session.host}:${session.port}: ${error.message}`, { retryable: true, cause: error }));
+      };
+      const onAbort = (): void => fail(new UnrealBlueprintError(ERROR_CODES.REQUEST_ABORTED, "Unreal Editor connection was aborted"));
+      const onConnect = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(candidate);
       };
       const timeout = setTimeout(() => {
-        candidate.destroy();
-        reject(new UnrealBlueprintError(ERROR_CODES.CONNECTION_FAILED, `Timed out connecting to ${session.host}:${session.port}`, { retryable: true }));
+        fail(new UnrealBlueprintError(ERROR_CODES.CONNECTION_FAILED, `Timed out connecting to ${session.host}:${session.port}`, { retryable: true }));
       }, timeoutMs);
-      candidate.once("connect", () => {
-        clearTimeout(timeout);
-        candidate.removeListener("error", onError);
-        resolve(candidate);
-      });
+      candidate.once("connect", onConnect);
       candidate.once("error", onError);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
 
     let client: RpcClient;
@@ -99,7 +118,7 @@ export class RpcClient {
         authToken: session.authToken,
         protocolVersion: CLIENT_PROTOCOL_VERSION,
         client: "codex-unreal-blueprint"
-      });
+      }, signal === undefined ? {} : { signal });
       if (!isJsonObject(result) || result.authenticated !== true) {
         throw new UnrealBlueprintError(ERROR_CODES.AUTHENTICATION_FAILED, "Editor rejected session authentication", {
           context: { editorSessionId: session.editorSessionId }
@@ -145,13 +164,13 @@ export class RpcClient {
     }
     return new Promise<JsonValue>((resolve, reject) => {
       const onAbort = (): void => {
-        this.#settle(id, new UnrealBlueprintError(ERROR_CODES.REQUEST_ABORTED, `RPC request aborted: ${method}`), true);
+        this.#closeWithError(new UnrealBlueprintError(ERROR_CODES.REQUEST_ABORTED, `RPC request aborted: ${method}`));
       };
       const timeout = setTimeout(() => {
-        this.#settle(id, new UnrealBlueprintError(ERROR_CODES.REQUEST_TIMEOUT, `RPC request timed out after ${timeoutMs}ms: ${method}`, {
+        this.#closeWithError(new UnrealBlueprintError(ERROR_CODES.REQUEST_TIMEOUT, `RPC request timed out after ${timeoutMs}ms: ${method}`, {
           retryable: true,
           context: { details: { method, timeoutMs } }
-        }), true);
+        }));
       }, timeoutMs);
       const signal = options.signal;
       const removeAbortListener = (): void => signal?.removeEventListener("abort", onAbort);

@@ -18,6 +18,7 @@ export interface UnrealClientOptions {
   readonly session?: SessionQuery;
   readonly discovery?: DiscoveryOptions;
   readonly rpc?: RpcClientOptions;
+  readonly signal?: AbortSignal;
 }
 
 export class UnrealClient {
@@ -30,8 +31,8 @@ export class UnrealClient {
   }
 
   static async connect(options: UnrealClientOptions = {}): Promise<UnrealClient> {
-    const session = await selectSession(options.session, options.discovery);
-    const rpc = await RpcClient.connect(session, options.rpc);
+    const session = await selectSession(options.session, options.discovery, options.signal);
+    const rpc = await RpcClient.connect(session, options.rpc, options.signal);
     return new UnrealClient(session, rpc);
   }
 

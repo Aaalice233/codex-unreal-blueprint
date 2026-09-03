@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { discoverSessions, invokeWriteWithRecovery, selectSession, withUnrealClient, type EditorSession, type SessionQuery } from "../client/index.js";
 import { TOOL_NAMES, type ToolName } from "../shared/contracts.js";
-import { asUnrealBlueprintError } from "../shared/errors.js";
+import { asUnrealBlueprintError, ERROR_CODES, UnrealBlueprintError } from "../shared/errors.js";
 import { assertJsonValue, isJsonObject, type JsonObject, type JsonValue } from "../shared/json.js";
 
 const sessionSchema = z.object({
@@ -92,11 +92,19 @@ function splitParameters(value: unknown): { session: SessionQuery; rpcParams: Js
   return { session, rpcParams };
 }
 
+function invokeOptions(name: ToolName, rpcParams: JsonObject, signal?: AbortSignal): { signal?: AbortSignal; timeoutMs?: number } {
+  const options: { signal?: AbortSignal; timeoutMs?: number } = signal === undefined ? {} : { signal };
+  if (name === "blueprint_job" && rpcParams.action === "wait" && typeof rpcParams.timeoutMs === "number") {
+    options.timeoutMs = Math.max(1, rpcParams.timeoutMs + 1_000);
+  }
+  return options;
+}
+
 export async function invokeTool(name: ToolName, parameters: unknown, signal?: AbortSignal): Promise<JsonValue> {
   const parsed = toolSchemas[name].parse(parameters);
   const { session, rpcParams } = splitParameters(parsed);
   if (name === "unreal_status" && session.editorSessionId === undefined) {
-    const sessions = await discoverSessions(session);
+    const sessions = await discoverSessions(session, {}, signal);
     if (sessions.length !== 1) {
       return {
         connected: false,
@@ -112,13 +120,39 @@ export async function invokeTool(name: ToolName, parameters: unknown, signal?: A
       };
     }
     const selected = sessions[0] as EditorSession;
-    return withUnrealClient({ session: { editorSessionId: selected.editorSessionId } }, (client) => client.invoke(name, rpcParams, signal === undefined ? {} : { signal }));
+    const status = await withUnrealClient(
+      { session: { editorSessionId: selected.editorSessionId }, ...(signal === undefined ? {} : { signal }) },
+      (client) => client.invoke(name, rpcParams, invokeOptions(name, rpcParams, signal))
+    );
+    if (!isJsonObject(status)) {
+      throw new UnrealBlueprintError(ERROR_CODES.INVALID_RESPONSE, "Editor returned a non-object status response");
+    }
+    return {
+      ...status,
+      connected: true,
+      session: {
+        editorSessionId: selected.editorSessionId,
+        pid: selected.pid,
+        uproject: selected.uproject,
+        engineVersion: selected.engineVersion,
+        pluginVersion: selected.pluginVersion,
+        protocolVersion: selected.protocolVersion
+      }
+    };
   }
   if (name === "blueprint_apply") {
-    const selected = await selectSession(session);
-    return invokeWriteWithRecovery({ session: { editorSessionId: selected.editorSessionId } }, name, rpcParams, signal === undefined ? {} : { signal });
+    const selected = await selectSession(session, {}, signal);
+    return invokeWriteWithRecovery(
+      { session: { editorSessionId: selected.editorSessionId }, ...(signal === undefined ? {} : { signal }) },
+      name,
+      rpcParams,
+      signal === undefined ? {} : { signal }
+    );
   }
-  return withUnrealClient({ session }, (client) => client.invoke(name, rpcParams, signal === undefined ? {} : { signal }));
+  return withUnrealClient(
+    { session, ...(signal === undefined ? {} : { signal }) },
+    (client) => client.invoke(name, rpcParams, invokeOptions(name, rpcParams, signal))
+  );
 }
 
 export function failedToolResult(error: unknown): { isError: true; content: [{ type: "text"; text: string }]; structuredContent: { error: ReturnType<ReturnType<typeof asUnrealBlueprintError>["toJSON"]> } } {
