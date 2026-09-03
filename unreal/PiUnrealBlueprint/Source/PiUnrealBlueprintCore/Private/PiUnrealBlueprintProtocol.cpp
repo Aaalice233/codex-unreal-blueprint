@@ -6,6 +6,51 @@
 
 namespace PiUnrealBlueprint
 {
+    namespace
+    {
+        const TCHAR* StableCodeToString(const EErrorCode Code)
+        {
+            switch (Code)
+            {
+            case EErrorCode::None: return TEXT("NONE");
+            case EErrorCode::InvalidJson: return TEXT("INVALID_JSON");
+            case EErrorCode::InvalidRequest: return TEXT("INVALID_REQUEST");
+            case EErrorCode::ProtocolVersionMismatch: return TEXT("PROTOCOL_VERSION_MISMATCH");
+            case EErrorCode::RequestIdRequired: return TEXT("REQUEST_ID_REQUIRED");
+            case EErrorCode::AuthenticationRequired: return TEXT("AUTHENTICATION_REQUIRED");
+            case EErrorCode::AuthenticationFailed: return TEXT("AUTHENTICATION_FAILED");
+            case EErrorCode::TransportError: return TEXT("TRANSPORT_ERROR");
+            case EErrorCode::RequestConflict: return TEXT("REQUEST_CONFLICT");
+            case EErrorCode::RequestNotFound: return TEXT("REQUEST_NOT_FOUND");
+            case EErrorCode::RequestInterrupted: return TEXT("REQUEST_INTERRUPTED");
+            case EErrorCode::JournalCorrupt: return TEXT("JOURNAL_CORRUPT");
+            case EErrorCode::JournalIoError: return TEXT("JOURNAL_IO_ERROR");
+            case EErrorCode::InvalidArgument: return TEXT("INVALID_ARGUMENT");
+            case EErrorCode::UnknownField: return TEXT("UNKNOWN_FIELD");
+            case EErrorCode::UnknownOperation: return TEXT("UNKNOWN_OPERATION");
+            case EErrorCode::TypeMismatch: return TEXT("TYPE_MISMATCH");
+            case EErrorCode::AssetNotFound: return TEXT("ASSET_NOT_FOUND");
+            case EErrorCode::ValidationFailed: return TEXT("VALIDATION_FAILED");
+            case EErrorCode::VerificationFailed: return TEXT("VERIFICATION_FAILED");
+            case EErrorCode::NotImplemented: return TEXT("NOT_IMPLEMENTED");
+            case EErrorCode::JobQueueFull: return TEXT("JOB_QUEUE_FULL");
+            case EErrorCode::WriteLeaseExpired: return TEXT("WRITE_LEASE_EXPIRED");
+            case EErrorCode::TransportQueueFull: return TEXT("TRANSPORT_QUEUE_FULL");
+            case EErrorCode::InternalError: return TEXT("INTERNAL_ERROR");
+            default: return TEXT("UNKNOWN_ERROR");
+            }
+        }
+
+        bool IsRetryable(const EErrorCode Code)
+        {
+            return Code == EErrorCode::TransportError
+                || Code == EErrorCode::RequestNotFound
+                || Code == EErrorCode::JournalIoError
+                || Code == EErrorCode::JobQueueFull
+                || Code == EErrorCode::TransportQueueFull;
+        }
+    }
+
     const TCHAR* LexToString(const EServiceState State)
     {
         switch (State)
@@ -27,13 +72,12 @@ namespace PiUnrealBlueprint
         {
         case EJobPhase::Queued: return TEXT("Queued");
         case EJobPhase::Preflight: return TEXT("Preflight");
-        case EJobPhase::Backup: return TEXT("Backup");
         case EJobPhase::Modify: return TEXT("Modify");
         case EJobPhase::Compile: return TEXT("Compile");
         case EJobPhase::Save: return TEXT("Save");
         case EJobPhase::Reload: return TEXT("Reload");
         case EJobPhase::Verify: return TEXT("Verify");
-        case EJobPhase::Recover: return TEXT("Recover");
+        case EJobPhase::Stopping: return TEXT("Stopping");
         case EJobPhase::Succeeded: return TEXT("Succeeded");
         case EJobPhase::Failed: return TEXT("Failed");
         case EJobPhase::Cancelled: return TEXT("Cancelled");
@@ -53,7 +97,22 @@ namespace PiUnrealBlueprint
         case EErrorCode::AuthenticationRequired: return TEXT("AuthenticationRequired");
         case EErrorCode::AuthenticationFailed: return TEXT("AuthenticationFailed");
         case EErrorCode::TransportError: return TEXT("TransportError");
+        case EErrorCode::RequestConflict: return TEXT("RequestConflict");
+        case EErrorCode::RequestNotFound: return TEXT("RequestNotFound");
+        case EErrorCode::RequestInterrupted: return TEXT("RequestInterrupted");
+        case EErrorCode::JournalCorrupt: return TEXT("JournalCorrupt");
+        case EErrorCode::JournalIoError: return TEXT("JournalIoError");
+        case EErrorCode::InvalidArgument: return TEXT("InvalidArgument");
+        case EErrorCode::UnknownField: return TEXT("UnknownField");
+        case EErrorCode::UnknownOperation: return TEXT("UnknownOperation");
+        case EErrorCode::TypeMismatch: return TEXT("TypeMismatch");
+        case EErrorCode::AssetNotFound: return TEXT("AssetNotFound");
+        case EErrorCode::ValidationFailed: return TEXT("ValidationFailed");
+        case EErrorCode::VerificationFailed: return TEXT("VerificationFailed");
         case EErrorCode::NotImplemented: return TEXT("NotImplemented");
+        case EErrorCode::JobQueueFull: return TEXT("JobQueueFull");
+        case EErrorCode::WriteLeaseExpired: return TEXT("WriteLeaseExpired");
+        case EErrorCode::TransportQueueFull: return TEXT("TransportQueueFull");
         case EErrorCode::InternalError: return TEXT("InternalError");
         default: return TEXT("Unknown");
         }
@@ -72,6 +131,8 @@ namespace PiUnrealBlueprint
     {
         TSharedRef<FJsonObject> Data = MakeShared<FJsonObject>();
         Data->SetStringField(TEXT("code"), LexToString(Code));
+        Data->SetStringField(TEXT("stableCode"), StableCodeToString(Code));
+        Data->SetBoolField(TEXT("retryable"), IsRetryable(Code));
         Data->SetStringField(TEXT("message"), Message);
         Data->SetStringField(TEXT("ueCallsite"), UECallsite);
         if (!AssetPath.IsEmpty())
@@ -215,6 +276,21 @@ namespace PiUnrealBlueprint
             case EErrorCode::AuthenticationFailed: JsonRpcCode = -32002; break;
             case EErrorCode::ProtocolVersionMismatch: JsonRpcCode = -32003; break;
             case EErrorCode::TransportError: JsonRpcCode = -32004; break;
+            case EErrorCode::RequestConflict: JsonRpcCode = -32005; break;
+            case EErrorCode::RequestNotFound: JsonRpcCode = -32006; break;
+            case EErrorCode::RequestInterrupted: JsonRpcCode = -32007; break;
+            case EErrorCode::JournalCorrupt: JsonRpcCode = -32008; break;
+            case EErrorCode::JournalIoError: JsonRpcCode = -32009; break;
+            case EErrorCode::InvalidArgument: JsonRpcCode = -32602; break;
+            case EErrorCode::UnknownField: JsonRpcCode = -32010; break;
+            case EErrorCode::UnknownOperation: JsonRpcCode = -32011; break;
+            case EErrorCode::TypeMismatch: JsonRpcCode = -32012; break;
+            case EErrorCode::AssetNotFound: JsonRpcCode = -32013; break;
+            case EErrorCode::ValidationFailed: JsonRpcCode = -32014; break;
+            case EErrorCode::VerificationFailed: JsonRpcCode = -32015; break;
+            case EErrorCode::JobQueueFull: JsonRpcCode = -32016; break;
+            case EErrorCode::WriteLeaseExpired: JsonRpcCode = -32017; break;
+            case EErrorCode::TransportQueueFull: JsonRpcCode = -32018; break;
             default: break;
             }
             JsonRpcError->SetNumberField(TEXT("code"), JsonRpcCode);

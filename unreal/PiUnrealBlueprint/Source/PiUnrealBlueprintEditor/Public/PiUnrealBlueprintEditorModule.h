@@ -1,6 +1,14 @@
 #pragma once
 
+#include "CoreMinimal.h"
 #include "Modules/ModuleInterface.h"
+
+class FExtender;
+
+namespace PiUnrealBlueprint
+{
+    struct FEditorStatusState;
+}
 
 class PIUNREALBLUEPRINTEDITOR_API FPiUnrealBlueprintEditorModule : public IModuleInterface
 {
@@ -9,6 +17,7 @@ public:
     virtual void ShutdownModule() override;
 
 private:
-    static const FName StatusBarItemName;
-    bool bStatusBarItemRegistered = false;
+    TSharedPtr<FExtender> StatusBarExtender;
+    TSharedPtr<PiUnrealBlueprint::FEditorStatusState, ESPMode::ThreadSafe> StatusState;
+    FDelegateHandle StatusTickerHandle;
 };

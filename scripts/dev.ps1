@@ -6,8 +6,15 @@ param(
 
     [string]$Message,
     [string]$Config,
+    [ValidateSet("project", "engine")]
+    [string]$Scope,
+    [string]$UProject,
+    [string]$EngineRoot,
+    [string]$PluginTarget,
+    [string]$PiAgentDir,
     [switch]$DryRun,
     [switch]$SkipUnrealBuild,
+    [switch]$SkipPackageCheck,
     [switch]$RunUnrealTests
 )
 
@@ -66,10 +73,11 @@ function Invoke-CheckedCommand {
 
 function Get-DevelopmentConfig {
     $defaults = [ordered]@{
-        repo = "E:/pi-unreal-blueprint"
+        repo = $script:ActualRepo
         piAgentDir = "C:/Users/Admin/.pi/agent"
         uproject = "E:/Master/LuaSocial.uproject"
-        uePluginTarget = "E:/Master/Plugins/PiUnrealBlueprint"
+        installScope = "project"
+        uePluginTarget = $null
         engineRoot = "E:/UE_4.27"
         editorTarget = "LuaSocialEditor"
         runUeTests = $false
@@ -94,11 +102,29 @@ function Get-DevelopmentConfig {
         Write-Step "配置文件不存在，使用本机默认值：$($configPath.Replace('\', '/'))"
     }
 
-    foreach ($name in @("repo", "piAgentDir", "uproject", "uePluginTarget", "engineRoot")) {
+    if ($Scope) { $defaults.installScope = $Scope }
+    if ($UProject) { $defaults.uproject = $UProject }
+    if ($EngineRoot) { $defaults.engineRoot = $EngineRoot }
+    if ($PluginTarget) { $defaults.uePluginTarget = $PluginTarget }
+    if ($PiAgentDir) { $defaults.piAgentDir = $PiAgentDir }
+
+    foreach ($name in @("repo", "piAgentDir", "uproject", "engineRoot")) {
         if (-not ($defaults[$name] -is [string]) -or [string]::IsNullOrWhiteSpace($defaults[$name])) {
             throw "配置项 $name 必须是非空路径。"
         }
         $defaults[$name] = ConvertTo-NormalizedPath $defaults[$name]
+    }
+    if ($defaults.installScope -notin @("project", "engine")) {
+        throw "installScope 必须是 project 或 engine。"
+    }
+    if ($defaults.uePluginTarget) {
+        $defaults.uePluginTarget = ConvertTo-NormalizedPath ([string]$defaults.uePluginTarget)
+    }
+    elseif ($defaults.installScope -eq "engine") {
+        $defaults.uePluginTarget = ConvertTo-NormalizedPath (Join-Path $defaults.engineRoot "Engine/Plugins/Developer/PiUnrealBlueprint")
+    }
+    else {
+        $defaults.uePluginTarget = ConvertTo-NormalizedPath (Join-Path (Split-Path -Parent $defaults.uproject) "Plugins/PiUnrealBlueprint")
     }
 
     if ((Split-Path -Leaf $defaults.uePluginTarget) -ne "PiUnrealBlueprint") {
@@ -347,7 +373,12 @@ function Invoke-UnrealTests {
 function Invoke-Check {
     param([Parameter(Mandatory = $true)]$Settings)
     Assert-DevelopmentPrerequisites $Settings
-    Invoke-CheckedCommand "npm" @("run", "check")
+    if ($SkipPackageCheck) {
+        Write-Step "使用已发布 package 的预构建 CLI，跳过仅源码 checkout 可用的 npm 开发检查。"
+    }
+    else {
+        Invoke-CheckedCommand "npm" @("run", "check")
+    }
     Invoke-UnrealBuild $Settings
     Invoke-UnrealTests $Settings
 }
@@ -480,6 +511,11 @@ switch ($Action) {
     "setup" {
         $setupParameters = @{
             Config = $(if ($Config) { ConvertTo-NormalizedPath $Config } else { Join-Path $script:ActualRepo "dev.local.json" })
+            Scope = $Scope
+            UProject = $UProject
+            EngineRoot = $EngineRoot
+            PluginTarget = $PluginTarget
+            PiAgentDir = $PiAgentDir
             DryRun = $DryRun
             SkipUnrealBuild = $SkipUnrealBuild
         }

@@ -1,6 +1,6 @@
 {
   "name": "pi-unreal-blueprint",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Production-grade Blueprint automation for Unreal Engine 4.27 and Pi",
   "type": "module",
   "license": "MIT",
@@ -32,6 +32,10 @@
     "scripts",
     "README.md",
     "README.zh-CN.md",
+    "Docs",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "PLAN.md",
     "LICENSE"
   ],

@@ -29,8 +29,8 @@ Frames, nesting, and batch size are bounded. All UObject work runs on the Game T
 
 ## Write invariant
 
-A write is successful only after the whole affected package set passes preflight, backup, transaction, mutation, structural readback, compile, save, reload, and verification. Failure before save rolls back memory. Partial save, crash, or uncertain connection enters journal-based batch recovery. Recovery must stop rather than overwrite post-job user changes.
+A write is successful only after the whole affected package set passes preflight, transaction, mutation, structural readback, compile, save, reload, and verification. Failure before save rolls back Editor memory through the transaction. Partial save, crash, or uncertain connection produces a precise Journal and `partial`/`stateUnknown` result. The product never copies packages or automatically restores files; users inspect and restore the listed assets through their existing Git/SVN working copy.
 
 ## Public interface baseline
 
-The planned high-level tools are `unreal_status`, `unreal_doctor`, `unreal_search`, `blueprint_capabilities`, `blueprint_inspect`, `blueprint_validate`, `blueprint_apply`, `blueprint_job`, `blueprint_verify`, and `blueprint_history`. Detailed operation schemas are fetched from the Registry only when needed.
+The nine high-level tools are `unreal_status`, `unreal_doctor`, `unreal_search`, `blueprint_capabilities`, `blueprint_inspect`, `blueprint_validate`, `blueprint_apply`, `blueprint_job`, and `blueprint_verify`. Detailed operation schemas are fetched from the Registry only when needed. Request lookup is an internal `blueprint.request` RPC used after an uncertain write response; it is not a tenth public tool.

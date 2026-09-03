@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          clean: false
+          clean: true
 
       - name: Verify implementation readiness
         shell: pwsh
@@ -80,4 +80,7 @@ jobs:
           if (-not $env:PI_UNREAL_UPROJECT) {
             $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject'
           }
-          ./scripts/dev.ps1 check
+          ./scripts/dev.ps1 check `
+            -UProject $env:PI_UNREAL_UPROJECT `
+            -EngineRoot $env:UE_4_27_ROOT `
+            -RunUnrealTests

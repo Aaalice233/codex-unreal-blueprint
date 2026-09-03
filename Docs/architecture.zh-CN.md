@@ -29,8 +29,8 @@ Editor 将监听随机 `127.0.0.1` 端口，并写入仅当前用户可读的会
 
 ## 写入不变量
 
-只有完整受影响 Package 集合依次通过预检、备份、事务、修改、结构回读、编译、保存、重载和验证，写入才算成功。保存前失败回滚内存；部分保存、崩溃或连接状态不明时，按 Journal 整批恢复。若 Job 后资产又被用户修改，恢复必须停止，不能覆盖新改动。
+只有完整受影响 Package 集合依次通过预检、事务、修改、结构回读、编译、保存、重载和验证，写入才算成功。保存前失败通过事务回滚 Editor 内存；部分保存、崩溃或连接状态不明时，生成准确 Journal，并返回 `partial`/`stateUnknown`。产品不复制 Package，也不自动还原文件；用户核对清单后通过现有 Git/SVN 工作副本手工还原。
 
 ## 公共接口基线
 
-计划中的高层 tools 为 `unreal_status`、`unreal_doctor`、`unreal_search`、`blueprint_capabilities`、`blueprint_inspect`、`blueprint_validate`、`blueprint_apply`、`blueprint_job`、`blueprint_verify` 和 `blueprint_history`。具体 operation schema 仅在需要时从 Registry 获取。
+9 个高层 tools 为 `unreal_status`、`unreal_doctor`、`unreal_search`、`blueprint_capabilities`、`blueprint_inspect`、`blueprint_validate`、`blueprint_apply`、`blueprint_job` 和 `blueprint_verify`。具体 operation schema 仅在需要时从 Registry 获取。`blueprint.request` 只是在写入响应不明时查询 `requestId` 的内部 RPC，不是第 10 个公开 tool。

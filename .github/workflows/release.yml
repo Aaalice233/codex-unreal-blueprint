@@ -30,6 +30,7 @@ jobs:
       trusted: ${{ steps.gate.outputs.trusted }}
       version: ${{ steps.gate.outputs.version }}
       dry_run: ${{ steps.gate.outputs.dry_run }}
+      checkout_ref: ${{ steps.gate.outputs.checkout_ref }}
     steps:
       - id: gate
         shell: bash
@@ -45,9 +46,15 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             version="${GITHUB_REF#refs/tags/v}"
             dry_run=false
+            checkout_ref="${GITHUB_REF}"
           elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             version="${INPUT_VERSION}"
             dry_run="${INPUT_DRY_RUN:-true}"
+            checkout_ref="${GITHUB_SHA}"
+            [[ "${dry_run}" == true ]] || {
+              echo "workflow_dispatch is verification-only; push an annotated v* tag to publish." >&2
+              exit 1
+            }
           else
             echo "Manual releases must run from main; automatic releases require a v* tag." >&2
             exit 1
@@ -59,6 +66,7 @@ jobs:
           echo "trusted=true" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "dry_run=${dry_run}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
 
   build-and-release:
     name: Build, verify, and publish
@@ -69,6 +77,7 @@ jobs:
     timeout-minutes: 240
     permissions:
       contents: write
+      id-token: write
     env:
       RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
       DRY_RUN: ${{ needs.authorize.outputs.dry_run }}
@@ -78,8 +87,9 @@ jobs:
       - name: Checkout trusted release commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.authorize.outputs.checkout_ref }}
           persist-credentials: false
-          clean: false
+          clean: true
 
       - name: Block incomplete release implementations
         shell: pwsh
@@ -113,9 +123,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not $env:PI_UNREAL_UPROJECT) { $env:PI_UNREAL_UPROJECT = 'E:/Master/LuaSocial.uproject' }
-          npm ci
-          npm run release:verify -- --version $env:RELEASE_VERSION
-          ./scripts/dev.ps1 check
+          npm ci --ignore-scripts
+          ./scripts/verify-release.ps1 -Version $env:RELEASE_VERSION
+          ./scripts/dev.ps1 check `
+            -UProject $env:PI_UNREAL_UPROJECT `
+            -EngineRoot $env:UE_4_27_ROOT `
+            -RunUnrealTests
 
       - name: Build UE4.27 Win64 plugin
         shell: pwsh
@@ -139,12 +152,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tgz = npm pack --pack-destination artifacts
           if ($LASTEXITCODE -ne 0) { throw "npm pack failed with exit code $LASTEXITCODE" }
-          Get-ChildItem -LiteralPath 'artifacts' -File |
+          $packages = Get-ChildItem -LiteralPath 'artifacts' -File |
             Where-Object { $_.Extension -in '.zip', '.tgz' } |
-            ForEach-Object {
-              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
-              "$hash  $($_.Name)" | Set-Content -Encoding ascii -LiteralPath "$($_.FullName).sha256"
-            }
+            Sort-Object Name
+          if ($packages.Count -ne 2) { throw "Expected one plugin zip and one npm tgz, found $($packages.Count)." }
+          $checksums = $packages | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $checksums | Set-Content -Encoding ascii -LiteralPath 'artifacts/SHA256SUMS.txt'
+          ./scripts/get-release-notes.ps1 -Version $env:RELEASE_VERSION -Output 'artifacts/RELEASE_NOTES.md'
 
       - name: Upload build evidence
         uses: actions/upload-artifact@v4
@@ -161,7 +178,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = "v$env:RELEASE_VERSION"
-          gh release create $tag artifacts/* --verify-tag --title $tag --generate-notes
+          $pluginArchive = "artifacts/PiUnrealBlueprint-$env:RELEASE_VERSION-UE4.27-Win64.zip"
+          $npmArchive = "artifacts/pi-unreal-blueprint-$env:RELEASE_VERSION.tgz"
+          foreach ($asset in @($pluginArchive, $npmArchive, 'artifacts/SHA256SUMS.txt')) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Release asset not found: $asset" }
+          }
+          gh release create $tag `
+            $pluginArchive $npmArchive 'artifacts/SHA256SUMS.txt' `
+            --verify-tag --title $tag --notes-file 'artifacts/RELEASE_NOTES.md'
 
       - name: Publish npm package
         if: env.DRY_RUN != 'true'
@@ -171,4 +195,4 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $package = Get-ChildItem -LiteralPath 'artifacts' -Filter '*.tgz' | Select-Object -Single
-          npm publish $package.FullName --access public
+          npm publish $package.FullName --access public --provenance

@@ -18,12 +18,12 @@ This document defines the intended v1.0.0 scope. It is not an availability state
 - WidgetBlueprint WidgetTree, slots, properties, bindings, navigation, accessibility, and Widget Animation.
 - AnimBlueprint AnimGraph, state machines, transitions, conduits, Pose Links, variables, and Event Graph.
 - UserDefinedStruct and UserDefinedEnum.
-- Create, duplicate, rename, move, delete, reparent, interface changes, Redirector repair, inspect, validate, apply, verify, and recover.
+- Create, duplicate, rename, move, delete, reparent, interface changes, Redirector repair, inspect, validate, apply, verify, and precise partial-failure reporting.
 
-Every supported write operation must use the same Operation Registry and the complete preflight-to-recovery pipeline. Coverage without that pipeline does not satisfy v1.
+Every supported write operation must use the same Operation Registry and the complete preflight-to-verify pipeline, with an affected-package Journal and Git/SVN manual-recovery guidance for uncertain disk state. Coverage without that pipeline does not satisfy v1.
 
 ## Explicit non-goals
 
 The first release does not promise UE5, Material, Niagara, Sequencer, level Actor automation, MCP, a public TypeScript SDK, a standalone GUI, or an Unreal Dock panel. The Unreal integration is limited to a status icon and Tooltip; management belongs in Pi and the CLI.
 
-Long-lived versioned plan files are not part of the product. Apply accepts an ordinary request for that job; durable state is limited to Job Journal and recovery/audit records.
+Long-lived versioned plan files are not part of the product. Apply accepts an ordinary request for that job; durable state is limited to Job Journal and audit records. The Journal contains no asset copy and is not an automatic restore system.

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { TOOL_NAMES, rpcMethodForTool } from "../../src/shared/contracts.js";
 
- describe("Pi tool contract", () => {
-  it("exposes exactly the ten PLAN.md tools", () => {
+describe("Pi tool contract", () => {
+  it("exposes exactly the nine PLAN.md tools", () => {
     expect(TOOL_NAMES).toEqual([
       "unreal_status",
       "unreal_doctor",
@@ -12,14 +12,22 @@ import { TOOL_NAMES, rpcMethodForTool } from "../../src/shared/contracts.js";
       "blueprint_validate",
       "blueprint_apply",
       "blueprint_job",
-      "blueprint_verify",
-      "blueprint_history"
+      "blueprint_verify"
     ]);
-    expect(new Set(TOOL_NAMES).size).toBe(10);
+    expect(new Set(TOOL_NAMES).size).toBe(9);
   });
 
-  it("maps tools onto stable namespaced RPC methods", () => {
-    expect(rpcMethodForTool("blueprint_apply")).toBe("blueprint.apply");
-    expect(rpcMethodForTool("unreal_status")).toBe("unreal.status");
+  it("maps every tool onto the current C++ namespaced RPC method", () => {
+    expect(TOOL_NAMES.map((name) => rpcMethodForTool(name))).toEqual([
+      "unreal.status",
+      "unreal.doctor",
+      "unreal.search",
+      "blueprint.capabilities",
+      "blueprint.inspect",
+      "blueprint.validate",
+      "blueprint.apply",
+      "blueprint.job",
+      "blueprint.verify"
+    ]);
   });
 });

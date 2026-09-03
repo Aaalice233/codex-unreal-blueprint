@@ -10,15 +10,14 @@ export const TOOL_NAMES = [
   "blueprint_validate",
   "blueprint_apply",
   "blueprint_job",
-  "blueprint_verify",
-  "blueprint_history"
+  "blueprint_verify"
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export const CLI_COMMANDS = [
   "setup", "doctor", "status", "search", "inspect", "capabilities",
-  "validate", "apply", "job", "verify", "history", "restore", "plugin"
+  "validate", "apply", "job", "verify", "plugin"
 ] as const;
 
 export type CliCommand = (typeof CLI_COMMANDS)[number];
@@ -32,8 +31,7 @@ const RPC_METHODS: Readonly<Record<ToolName, string>> = {
   blueprint_validate: "blueprint.validate",
   blueprint_apply: "blueprint.apply",
   blueprint_job: "blueprint.job",
-  blueprint_verify: "blueprint.verify",
-  blueprint_history: "blueprint.history"
+  blueprint_verify: "blueprint.verify"
 };
 
 export function rpcMethodForTool(toolName: ToolName): string {

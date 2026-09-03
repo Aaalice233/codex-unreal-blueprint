@@ -20,7 +20,7 @@ PiUnrealBlueprint UE Editor Plugin
 
 - 不使用 MCP 作为第一版入口；稳定 CLI 和 JSON-RPC 已为未来 MCP 薄适配保留边界。
 - 不依赖、不链接、不分发 AQ；AQ 仅作为本机能力对照，所有发布能力由自研 UE 插件独立实现。
-- Pi 写入完全自动执行，不弹计划确认框；安全性由严格前置校验、事务、整批备份、操作日志和失败恢复保证。
+- Pi 写入完全自动执行，不弹计划确认框；安全性由严格前置校验、UE 事务、编译保存回读、幂等审计和准确的部分失败清单保证。资产通过项目现有 Git/SVN 手工还原，不实现文件备份或自动恢复。
 
 ## 仓库与发布形态
 
@@ -58,7 +58,7 @@ pi-unreal-blueprint/
 Plan 模式结束、进入实施后，先更新当前被 SVN 忽略的 `E:/Master/Content/Lua/AGENTS.md`，并在新仓库创建 `AGENTS.md`，记录用户已明确选择的偏好：
 
 - 本产品的 Blueprint 写入默认完全自动执行，不增加确认弹窗。
-- 自动写入必须同时具备事务、资产备份、操作日志和失败恢复。
+- 自动写入必须具备严格预检、UE 事务、操作日志、编译保存回读和部分失败清单；不复制 Package、不实现自动恢复，资产由用户通过 Git/SVN 手工还原。
 - 本机 UE 集成测试使用 `E:/Master/LuaSocial.uproject`；产品开发任务获准自动操作 E:/Master 资产，不再受原“禁止 Agent 操作 UE Editor”条款限制。
 - UE 插件只提供状态栏图标，不建设 Dock 管理面板；详细管理集中在 Pi 面板和 CLI。
 - 不引入需要长期维护的“版本化 Plan 文件”；批处理只接受当次普通 JSON 请求。
@@ -69,7 +69,7 @@ Plan 模式结束、进入实施后，先更新当前被 SVN 忽略的 `E:/Maste
 
 插件仅在 Editor/Commandlet 环境加载，不进入游戏 Runtime 包：
 
-- **Core**：资产解析、操作注册表、预检、事务、编译、保存、回读和恢复；不依赖 Slate，供交互 Editor 与 Commandlet 共用。
+- **Core**：资产解析、操作注册表、预检、事务、编译、保存、回读和失败状态归档；不依赖 Slate，供交互 Editor 与 Commandlet 共用。
 - **Transport**：本机 TCP 服务、JSON-RPC、认证、会话发现、Job 队列和进度通知。
 - **Editor Integration**：状态栏图标与 Tooltip，显示未连接/已连接/写入中/故障；不提供 Dock 面板。
 - **Commandlet**：调用同一 Core，从请求文件读取普通 JSON，输出结构化结果，支持 CI/headless 写入。
@@ -121,7 +121,7 @@ Plan 模式结束、进入实施后，先更新当前被 SVN 忽略的 `E:/Maste
 
 ### Struct、Enum 与专用 Blueprint
 
-支持 UserDefinedStruct 字段和默认值、UserDefinedEnum 枚举项、Blueprint Interface、Function Library、Macro Library、Level Blueprint。Level Blueprint 修改会把所属 Map 纳入同一备份和恢复集合。
+支持 UserDefinedStruct 字段和默认值、UserDefinedEnum 枚举项、Blueprint Interface、Function Library、Macro Library、Level Blueprint。Level Blueprint 修改会把所属 Map 纳入影响资产集合和失败状态清单。
 
 ## Pi Tool 公共接口
 
@@ -136,42 +136,40 @@ Plan 模式结束、进入实施后，先更新当前被 SVN 忽略的 `E:/Maste
 7. `blueprint_apply`：接收一次强类型 operation 列表，内部再次校验后启动自动写入 Job。
 8. `blueprint_job`：查询、等待或在安全阶段取消 Job，并读取结构化进度和编译日志。
 9. `blueprint_verify`：独立编译/重载/结构断言，支持检查调用方给出的期望条件。
-10. `blueprint_history`：查看备份和操作日志，并按记录恢复；恢复同样经过状态校验和写租约。
 
 `blueprint_apply` 的公开 Tool Schema 保持紧凑；具体 operation 参数由 UE Core 的 Operation Registry 作为唯一事实来源，Pi 通过 `blueprint_capabilities` 按需取得。未知字段、未知 operation 和不匹配类型全部拒绝。
 
-## 自动写入、安全与恢复
+## 自动写入、安全与失败处置
 
 每个写 Job 固定执行：
 
 1. 锁定准确 Editor 会话并获取写租约。
 2. 解析所有引用和 actionId，计算完整影响 Package 集合。
 3. 拒绝目标中已有用户未保存的 Dirty Package，并列出具体资产。
-4. 检查结构哈希、磁盘空间、只读状态和 UE Source Control Provider。
+4. 检查 expectedStateHash、磁盘空间、只读状态和 UE Source Control Provider。
 5. 按需 Checkout；新文件在成功保存后 MarkForAdd。Provider 失败即停止，不绕过团队流程。
-6. 在 `Saved/PiUnrealBlueprint/Backups/<jobId>/` 备份整批原始 Package、存在性、路径、哈希和 Source Control 状态。
-7. 创建 `FScopedTransaction`，对 Blueprint、Graph、Node、SCS、Component Template 等完整调用 `Modify()`。
-8. 应用全部 operation，结构回读并校验预期结果。
-9. 按依赖顺序统一编译，收集 `FCompilerResultsLog`；Error 必须为 0，Warning 单独返回但默认不阻止保存。
-10. 再次校验整批后保存 Package；任一保存失败则进入整批恢复。
-11. 重新加载/重新查询资产，验证磁盘状态、结构哈希、编译状态和 Package 非 Dirty。
-12. 写入操作日志、释放租约并返回实际变更摘要。
+6. 创建 `FScopedTransaction`，对 Blueprint、Graph、Node、SCS、Component Template 等完整调用 `Modify()`。
+7. 应用全部 operation，结构回读并校验预期结果。
+8. 按依赖顺序统一编译，收集 `FCompilerResultsLog`；Error 必须为 0，Warning 单独返回但默认不阻止保存。
+9. 再次校验整批后保存 Package；逐个记录保存结果，不声称磁盘级原子提交。
+10. 重新加载/重新查询成功保存的资产，验证磁盘状态、结构哈希、编译状态和 Package 非 Dirty。
+11. 写入 requestId/Job 审计、释放租约并返回实际变更摘要。
 
 失败处理：
 
-- 保存前失败：撤销事务并验证内存结构恢复。
-- 部分保存、Editor 崩溃或连接不明：根据持久化 Job Journal 和原始 Package 备份恢复整批；新建资产删除、移动/重命名资产恢复原路径。
-- 恢复前若检测到 Job 之后又有人修改资产，自动恢复停止并报告冲突，不覆盖新改动。
-- 自动获得的 Source Control checkout 不擅自执行可能覆盖用户状态的通用 revert；恢复磁盘内容后明确报告 Provider 状态。
-- 成功备份默认保留 30 天、最多 100 个 Job、总计 5 GiB，三者先到先清理；失败或恢复未完成的备份永不自动清理。
+- 保存前失败：通过 `FScopedTransaction` 撤销并验证内存结构；它只提供 UE Editor 内的 Undo，不承担跨进程或磁盘恢复。
+- 部分保存、Editor 崩溃或连接不明：不自动复制、覆盖、删除或还原 Package；Journal 记录 `modified/saved/notSaved/unknown` 资产、operation 索引、执行阶段和最后确认哈希。
+- 失败结果必须明确标记 `partial` 或 `stateUnknown`，不得返回成功；同时按 Git/SVN 工作副本类型生成只读检查和手工还原建议。
+- 插件不得自动执行 `git reset/checkout`、`svn revert` 或 Source Control 通用 revert，避免覆盖用户后续改动；用户核对清单后自行还原。
+- Job Journal 仅用于 requestId 幂等、状态查询、诊断和审计，不保存资产副本，也不提供 history/restore 产品入口。
 
 ## 异步 Job 与体验
 
-- `blueprint_apply` 快速返回 `jobId`；Extension 通过通知显示 Preflight、Backup、Modify、Compile、Save、Reload、Verify、Recover 阶段及资产级进度。
-- 保存前的安全点允许取消并回滚；编译/保存等不可安全打断阶段返回“等待当前阶段结束”，不伪造取消成功。
-- Pi Footer 显示 `UE: <Project> • Connected/Job/Recovery`。
-- `/unreal-blueprint` 面板管理 Editor 会话、Job、错误、备份恢复和 doctor；不增加写入确认步骤。
-- UE 端仅状态栏图标和 Tooltip，显示服务、客户端、租约和故障状态；恢复和详细诊断在 Pi 面板/CLI 完成。
+- `blueprint_apply` 快速返回 `jobId`；Extension 通过通知显示 Preflight、Modify、Compile、Save、Reload、Verify、Failed 阶段及资产级进度。
+- 保存前的安全点允许取消并撤销 UE 事务；编译/保存等不可安全打断阶段返回“等待当前阶段结束”，不伪造取消成功。
+- Pi Footer 显示 `UE: <Project> • Connected/Job/Failed`。
+- `/unreal-blueprint` 面板管理 Editor 会话、Job、错误、部分失败资产清单和 doctor；不增加写入确认步骤。
+- UE 端仅状态栏图标和 Tooltip，显示服务、客户端、租约和故障状态；详细诊断在 Pi 面板/CLI 完成。
 - 错误采用稳定错误码、资产路径、operation 索引、UE 调用位置、原始编译消息和建议动作，不吞异常、不返回“部分成功”冒充成功。
 
 ## CLI、Headless 与安装
@@ -182,7 +180,6 @@ Plan 模式结束、进入实施后，先更新当前被 SVN 忽略的 `E:/Maste
 pi-unreal-blueprint setup|doctor|status
 pi-unreal-blueprint search|inspect|capabilities
 pi-unreal-blueprint validate|apply|job|verify
-pi-unreal-blueprint history|restore
 pi-unreal-blueprint plugin install|update|remove
 ```
 
@@ -231,7 +228,7 @@ pi-unreal-blueprint plugin install|update|remove
 - C++：每类 operation 的成功、参数类型错误、继承限制、Action Catalog 歧义、Graph Schema 不兼容、UMG/AnimBP 专用规则。
 - 资产族 E2E：普通 BP、组件 BP、Function/Macro Library、Interface、Level BP、Widget BP 与动画、AnimBP 与状态机、Struct、Enum。
 - 持久化 E2E：修改→编译→保存→关闭/重启 Editor 或 Commandlet→重新加载→结构断言。
-- 失败注入：编译错误、保存失败、磁盘空间不足、Source Control 拒绝、Dirty Package、断线发生在执行前/执行后、Editor 崩溃、部分保存、恢复冲突。
+- 失败注入：编译错误、保存失败、磁盘空间不足、Source Control 拒绝、Dirty Package、断线发生在执行前/执行后、Editor 崩溃和部分保存；逐项验证失败分类、资产状态清单与 Git/SVN 手工恢复指引。
 - 幂等：写操作已执行但响应丢失时，同一 requestId 只能返回原结果，不能重复创建节点或组件。
 - 并发：多读、写租约竞争、心跳失效和取消。
 - 独立验证：关键 Fixture 保存后使用静态资产检查核对磁盘内容，避免只相信插件自身回读。
@@ -247,17 +244,17 @@ GitHub Actions：
 只有同时满足以下条件才发布 `v1.0.0`：
 
 - 上述所有 Blueprint 资产族和操作领域都有真实 UE4.27 E2E，不存在 TODO、模拟成功或未接通占位接口。
-- 所有写入都经过预检、整批备份、事务、编译、保存、重载、验证和日志；故障注入证明不会部分成功或盲目重放。
+- 所有写入都经过预检、UE 事务、编译、保存、重载、验证和审计；故障注入证明不会盲目重放或把部分失败伪装成成功，并能准确给出 Git/SVN 手工还原所需资产清单。
 - 交互 Editor 与 Headless Commandlet 对同一请求得到等价结构结果。
 - Pi Tool、状态面板、CLI、setup/doctor、本机开发同步和受保护 Release 流水线全部可用。
 - 新安装用户能从 npm/GitHub 在一条 setup 流程内完成项目插件安装、编译、连接和首个沙盒修改。
-- README、中文文档、Tool/CLI 参考、故障恢复、Source Control、贡献指南和安全说明完整。
+- README、中文文档、Tool/CLI 参考、失败处置、Git/SVN 手工还原、Source Control、贡献指南和安全说明完整。
 
 ## 明确默认与非目标
 
 - 首版仅 UE4.27 Win64，内部隔离版本适配层，但不声称支持 UE5。
 - 默认允许写 `/Game` 和项目插件 Content；Engine/引擎插件/第三方挂载点只读，用户可在项目策略中逐项开启。
 - 写入完全自动，不弹确认；Dirty 用户资产仍必须拒绝，以免覆盖未保存工作。
-- 不保存长期“Plan 文件”，只保留恢复和审计所需的 Job Journal。
+- 不保存长期“Plan 文件”；Job Journal 仅保留 requestId 幂等、状态查询、诊断和审计所需数据，不含资产副本。
 - 不提供 MCP、公共 TypeScript SDK、独立桌面 GUI或 UE Dock 面板。
 - 不把非 Blueprint 的 Material、Niagara、Sequencer、关卡 Actor 自动化扩入 v1。

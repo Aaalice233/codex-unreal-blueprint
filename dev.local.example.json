@@ -2,7 +2,7 @@
   "repo": "E:/pi-unreal-blueprint",
   "piAgentDir": "C:/Users/Admin/.pi/agent",
   "uproject": "E:/Master/LuaSocial.uproject",
-  "uePluginTarget": "E:/Master/Plugins/PiUnrealBlueprint",
+  "installScope": "project",
   "engineRoot": "E:/UE_4.27",
   "editorTarget": "LuaSocialEditor",
   "runUeTests": false,

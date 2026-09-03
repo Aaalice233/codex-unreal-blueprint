@@ -8,6 +8,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "PiUnrealBlueprintFraming.h"
+#include "PiUnrealBlueprintTransportLimits.h"
 #include "PiUnrealBlueprintTransportServer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -288,6 +289,38 @@ namespace PiUnrealBlueprint
         FString Error;
         TestTrue(TEXT("Malformed UTF-8 is rejected"), FLengthPrefixedJsonFraming::TryDecode(Buffer, Json, Error) == EFrameDecodeResult::Invalid);
         TestTrue(TEXT("The framing error is explicit"), Error.Contains(TEXT("UTF-8")));
+        return true;
+    }
+
+    IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPiTransportBoundedQueuesTest,
+        "PiUnrealBlueprint.Transport.BoundedQueues",
+        EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+    bool FPiTransportBoundedQueuesTest::RunTest(const FString& Parameters)
+    {
+        FPendingRequestLimiter Pending;
+        for (int32 Index = 0; Index < FTransportLimits::MaxPendingRequestsPerConnection; ++Index)
+        {
+            TestTrue(TEXT("pending request inside limit is accepted"), Pending.TryAcquire());
+        }
+        TestFalse(TEXT("pending request above limit is rejected"), Pending.TryAcquire());
+        Pending.Release();
+        TestTrue(TEXT("pending capacity is reusable after completion"), Pending.TryAcquire());
+
+        FBoundedTransportQueue Outgoing;
+        for (int32 Index = 0; Index < FTransportLimits::MaxOutgoingMessagesPerConnection; ++Index)
+        {
+            TArray<uint8> Frame = { 1 };
+            TestTrue(TEXT("outgoing frame inside limit is accepted"), Outgoing.Enqueue(MoveTemp(Frame)));
+        }
+        TArray<uint8> Overflow = { 2 };
+        TestFalse(TEXT("outgoing frame above limit is rejected"), Outgoing.Enqueue(MoveTemp(Overflow)));
+        TArray<uint8> Emergency = { 3 };
+        TestTrue(TEXT("one explicit overflow response has reserved capacity"), Outgoing.EnqueueEmergency(MoveTemp(Emergency)));
+        TArray<uint8> SecondEmergency = { 4 };
+        TestFalse(TEXT("reserved overflow capacity is itself bounded"), Outgoing.EnqueueEmergency(MoveTemp(SecondEmergency)));
+        TestEqual(TEXT("outgoing queue has a fixed maximum including overflow response"),
+            Outgoing.Num(), FTransportLimits::MaxOutgoingMessagesPerConnection + 1);
         return true;
     }
 }

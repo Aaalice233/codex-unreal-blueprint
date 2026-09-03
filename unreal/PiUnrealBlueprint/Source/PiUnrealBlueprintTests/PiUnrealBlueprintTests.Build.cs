@@ -9,8 +9,21 @@ public class PiUnrealBlueprintTests : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "Core",
+            "CoreUObject",
+            "Engine",
             "Json",
+            "AssetRegistry",
+            "AssetTools",
+            "AnimGraph",
+            "BlueprintGraph",
+            "Kismet",
+            "MovieScene",
+            "SlateCore",
+            "UMG",
+            "UMGEditor",
+            "UnrealEd",
             "PiUnrealBlueprintCore",
+            "PiUnrealBlueprintCommandlet",
             "PiUnrealBlueprintTransport"
         });
     }

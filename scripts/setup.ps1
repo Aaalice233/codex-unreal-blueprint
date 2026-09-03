@@ -1,6 +1,14 @@
 [CmdletBinding()]
 param(
     [string]$Config,
+    [ValidateSet("project", "engine")]
+    [string]$Scope,
+    [string]$UProject,
+    [string]$EngineRoot,
+    [string]$PluginTarget,
+    [string]$PiAgentDir,
+    [string]$PiSource,
+    [switch]$SkipPiInstall,
     [switch]$DryRun,
     [switch]$SkipUnrealBuild
 )
@@ -11,6 +19,9 @@ $ProgressPreference = "SilentlyContinue"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..")).Replace("\", "/").TrimEnd("/")
+$isSourceCheckout = Test-Path -LiteralPath "$repo/.git"
+$packageVersion = [string](Get-Content -LiteralPath "$repo/package.json" -Raw -Encoding UTF8 | ConvertFrom-Json).version
+$defaultPiSource = if ($isSourceCheckout) { $repo } else { "npm:pi-unreal-blueprint@$packageVersion" }
 $configPath = if ($Config) {
     [System.IO.Path]::GetFullPath($Config).Replace("\", "/")
 }
@@ -42,24 +53,53 @@ function Invoke-SetupCommand {
 
 function Get-SetupConfig {
     $values = [ordered]@{
-        repo = "E:/pi-unreal-blueprint"
-        piAgentDir = "C:/Users/Admin/.pi/agent"
-        uproject = "E:/Master/LuaSocial.uproject"
-        uePluginTarget = "E:/Master/Plugins/PiUnrealBlueprint"
-        engineRoot = "E:/UE_4.27"
+        repo = $repo
+        piAgentDir = Join-Path $HOME ".pi/agent"
+        uproject = $null
+        engineRoot = $null
+        installScope = "project"
+        uePluginTarget = $null
+        piSource = $defaultPiSource
+        skipPiInstall = $false
     }
     if (Test-Path -LiteralPath $configPath -PathType Leaf) {
         $local = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($property in $local.PSObject.Properties) { $values[$property.Name] = $property.Value }
     }
-    foreach ($name in @("repo", "piAgentDir", "uproject", "uePluginTarget", "engineRoot")) {
+
+    if ($Scope) { $values.installScope = $Scope }
+    if ($UProject) { $values.uproject = $UProject }
+    if ($EngineRoot) { $values.engineRoot = $EngineRoot }
+    if ($PluginTarget) { $values.uePluginTarget = $PluginTarget }
+    if ($PiAgentDir) { $values.piAgentDir = $PiAgentDir }
+    if ($PiSource) { $values.piSource = $PiSource }
+
+    if ($values.installScope -notin @("project", "engine")) {
+        throw "installScope 必须是 project 或 engine。"
+    }
+    if ($values.skipPiInstall -isnot [bool]) {
+        throw "skipPiInstall 必须是 boolean。"
+    }
+    if ($SkipPiInstall) { $values.skipPiInstall = $true }
+    foreach ($name in @("repo", "piAgentDir", "uproject", "engineRoot")) {
         if (-not ($values[$name] -is [string]) -or [string]::IsNullOrWhiteSpace($values[$name])) {
-            throw "配置项 $name 必须是非空路径。"
+            throw "缺少配置项 $name。请通过参数或 dev.local.json 提供。"
         }
         $values[$name] = [System.IO.Path]::GetFullPath($values[$name]).Replace("\", "/").TrimEnd("/")
     }
     if (-not [string]::Equals($values.repo, $repo, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "配置 repo 与 setup.ps1 所在仓库不一致：配置=$($values.repo)，实际=$repo"
+    }
+
+    if ($values.uePluginTarget) {
+        $values.uePluginTarget = [System.IO.Path]::GetFullPath([string]$values.uePluginTarget).Replace("\", "/").TrimEnd("/")
+    }
+    elseif ($values.installScope -eq "engine") {
+        $values.uePluginTarget = "$($values.engineRoot)/Engine/Plugins/Developer/PiUnrealBlueprint"
+    }
+    else {
+        $projectRoot = Split-Path -Parent $values.uproject
+        $values.uePluginTarget = ([System.IO.Path]::GetFullPath((Join-Path $projectRoot "Plugins/PiUnrealBlueprint"))).Replace("\", "/")
     }
     return [pscustomobject]$values
 }
@@ -129,14 +169,25 @@ function Test-InstalledFiles {
 $settings = Get-SetupConfig
 Assert-SetupPrerequisites $settings
 
-# 本地路径安装让 Pi 直接引用当前仓库；后续仅需 /reload 或重启 Pi。
-Invoke-SetupCommand "pi" @("install", $settings.repo)
+# 源码 checkout 使用本地路径；npm 包执行时安装同版本的正式 package。
+if (-not [bool]$settings.skipPiInstall) {
+    Invoke-SetupCommand "pi" @("install", [string]$settings.piSource)
+}
+else {
+    Write-SetupStep "已跳过 Pi package 安装。"
+}
 
 $devParameters = @{
     Action = "sync"
     Config = $configPath
+    Scope = [string]$settings.installScope
+    UProject = [string]$settings.uproject
+    EngineRoot = [string]$settings.engineRoot
+    PluginTarget = [string]$settings.uePluginTarget
+    PiAgentDir = [string]$settings.piAgentDir
     DryRun = $DryRun
     SkipUnrealBuild = $SkipUnrealBuild
+    SkipPackageCheck = (-not $isSourceCheckout)
 }
 Write-SetupStep "运行构建与安全插件同步。"
 & "$PSScriptRoot/dev.ps1" @devParameters

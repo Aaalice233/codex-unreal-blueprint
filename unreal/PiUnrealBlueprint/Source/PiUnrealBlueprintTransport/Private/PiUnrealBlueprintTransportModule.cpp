@@ -1,5 +1,6 @@
 #include "PiUnrealBlueprintTransportModule.h"
 
+#include "CoreGlobals.h"
 #include "Modules/ModuleManager.h"
 #include "PiUnrealBlueprintTransportServer.h"
 
@@ -7,6 +8,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogPiUnrealBlueprintTransport, Log, All);
 
 void FPiUnrealBlueprintTransportModule::StartupModule()
 {
+    // Commandlets use the Core module directly and must not publish an editor TCP session.
+    if (IsRunningCommandlet()) return;
+
     Server = MakeUnique<PiUnrealBlueprint::FTransportServer>();
     const PiUnrealBlueprint::FTransportServerConfig Config;
     if (!Server->Start(Config, LastError))
@@ -28,16 +32,6 @@ void FPiUnrealBlueprintTransportModule::ShutdownModule()
         Server->Stop();
         Server.Reset();
     }
-}
-
-PiUnrealBlueprint::EServiceState FPiUnrealBlueprintTransportModule::GetState() const
-{
-    return Server.IsValid() ? Server->GetState() : PiUnrealBlueprint::EServiceState::Stopped;
-}
-
-const PiUnrealBlueprint::FProtocolError& FPiUnrealBlueprintTransportModule::GetLastError() const
-{
-    return LastError;
 }
 
 IMPLEMENT_MODULE(FPiUnrealBlueprintTransportModule, PiUnrealBlueprintTransport)

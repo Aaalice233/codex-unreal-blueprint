@@ -9,14 +9,27 @@ public class PiUnrealBlueprintCore : ModuleRules
         PublicDependencyModuleNames.AddRange(new[]
         {
             "Core",
+            "CoreUObject",
+            "Engine",
             "Json"
         });
 
         PrivateDependencyModuleNames.AddRange(new[]
         {
-            "CoreUObject",
-            "Engine",
-            "Projects"
+            "AnimGraph",
+            "AnimGraphRuntime",
+            "AssetRegistry",
+            "AssetTools",
+            "BlueprintGraph",
+            "KismetCompiler",
+            "MovieScene",
+            "MovieSceneTracks",
+            "Projects",
+            "SlateCore",
+            "SourceControl",
+            "UMG",
+            "UMGEditor",
+            "UnrealEd"
         });
     }
 }

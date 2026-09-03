@@ -18,7 +18,10 @@
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "PiUnrealBlueprintFraming.h"
+#include "PiUnrealBlueprintJobs.h"
+#include "PiUnrealBlueprintRuntimeStatus.h"
 #include "PiUnrealBlueprintService.h"
+#include "PiUnrealBlueprintTransportLimits.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "SocketSubsystem.h"
@@ -34,6 +37,84 @@ DEFINE_LOG_CATEGORY_STATIC(LogPiUnrealBlueprintServer, Log, All);
 
 namespace PiUnrealBlueprint
 {
+    bool FBoundedTransportQueue::Enqueue(TArray<uint8>&& Frame)
+    {
+        FScopeLock Lock(&Mutex);
+        if (Frame.Num() <= 0
+            || MessageCount >= FTransportLimits::MaxOutgoingMessagesPerConnection
+            || Frame.Num() > FTransportLimits::MaxOutgoingBytesPerConnection - ByteCount)
+        {
+            return false;
+        }
+        ByteCount += Frame.Num();
+        ++MessageCount;
+        Frames.Enqueue(MoveTemp(Frame));
+        return true;
+    }
+
+    bool FBoundedTransportQueue::EnqueueEmergency(TArray<uint8>&& Frame)
+    {
+        FScopeLock Lock(&Mutex);
+        if (bEmergencyQueued || Frame.Num() <= 0 || Frame.Num() > FTransportLimits::MaxEmergencyFrameBytes)
+        {
+            return false;
+        }
+        ByteCount += Frame.Num();
+        ++MessageCount;
+        bEmergencyQueued = true;
+        Frames.Enqueue(MoveTemp(Frame));
+        return true;
+    }
+
+    bool FBoundedTransportQueue::Dequeue(TArray<uint8>& OutFrame)
+    {
+        FScopeLock Lock(&Mutex);
+        if (!Frames.Dequeue(OutFrame)) return false;
+        ByteCount -= OutFrame.Num();
+        --MessageCount;
+        if (MessageCount == 0) bEmergencyQueued = false;
+        return true;
+    }
+
+    bool FBoundedTransportQueue::IsEmpty() const
+    {
+        FScopeLock Lock(&Mutex);
+        return MessageCount == 0;
+    }
+
+    int32 FBoundedTransportQueue::Num() const
+    {
+        FScopeLock Lock(&Mutex);
+        return MessageCount;
+    }
+
+    int32 FBoundedTransportQueue::NumBytes() const
+    {
+        FScopeLock Lock(&Mutex);
+        return ByteCount;
+    }
+
+    bool FPendingRequestLimiter::TryAcquire()
+    {
+        FScopeLock Lock(&Mutex);
+        if (RequestCount >= FTransportLimits::MaxPendingRequestsPerConnection) return false;
+        ++RequestCount;
+        return true;
+    }
+
+    void FPendingRequestLimiter::Release()
+    {
+        FScopeLock Lock(&Mutex);
+        check(RequestCount > 0);
+        --RequestCount;
+    }
+
+    int32 FPendingRequestLimiter::Num() const
+    {
+        FScopeLock Lock(&Mutex);
+        return RequestCount;
+    }
+
     namespace
     {
         constexpr int32 ReceiveChunkSize = 64 * 1024;
@@ -212,6 +293,11 @@ namespace PiUnrealBlueprint
             return !bStopping;
         }
 
+        bool IsAuthenticated() const
+        {
+            return bAuthenticated;
+        }
+
         void Stop() override
         {
             bStopping = true;
@@ -276,15 +362,46 @@ namespace PiUnrealBlueprint
 
         void QueueResponse(const FProtocolResponse& Response)
         {
+            QueueJson(Response.ToJsonString());
+        }
+
+        void QueueNotification(const FJobProgress& Progress)
+        {
+            TSharedRef<FJsonObject> Notification = MakeShared<FJsonObject>();
+            Notification->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+            Notification->SetStringField(TEXT("method"), TEXT("blueprint.job.progress"));
+            Notification->SetObjectField(TEXT("params"), Progress.ToJson());
+            QueueJson(SerializeJsonObject(Notification));
+        }
+
+        void QueueJson(const FString& Json)
+        {
+            if (bCloseAfterDrain || bStopping) return;
             TArray<uint8> Frame;
             FString Error;
-            if (!FLengthPrefixedJsonFraming::Encode(Response.ToJsonString(), Frame, Error))
+            if (!FLengthPrefixedJsonFraming::Encode(Json, Frame, Error))
             {
-                UE_LOG(LogPiUnrealBlueprintServer, Error, TEXT("Cannot encode JSON-RPC response: %s"), *Error);
+                UE_LOG(LogPiUnrealBlueprintServer, Error, TEXT("Cannot encode JSON-RPC message: %s"), *Error);
                 bStopping = true;
                 return;
             }
-            Outgoing.Enqueue(MoveTemp(Frame));
+            if (Outgoing.Enqueue(MoveTemp(Frame))) return;
+
+            FScopeLock OverflowLock(&OverflowMutex);
+            if (bCloseAfterDrain || bStopping) return;
+            const FProtocolResponse Overflow = MakeErrorResponse(nullptr, EErrorCode::TransportQueueFull,
+                FString::Printf(TEXT("The connection outgoing queue limit of %d messages or %d bytes has been reached."),
+                    FTransportLimits::MaxOutgoingMessagesPerConnection, FTransportLimits::MaxOutgoingBytesPerConnection),
+                TEXT("FTransportConnection::QueueJson"));
+            TArray<uint8> EmergencyFrame;
+            if (!FLengthPrefixedJsonFraming::Encode(Overflow.ToJsonString(), EmergencyFrame, Error)
+                || !Outgoing.EnqueueEmergency(MoveTemp(EmergencyFrame)))
+            {
+                UE_LOG(LogPiUnrealBlueprintServer, Error, TEXT("Cannot queue the transport overflow error: %s"), *Error);
+                bStopping = true;
+                return;
+            }
+            bCloseAfterDrain = true;
         }
 
     private:
@@ -332,6 +449,15 @@ namespace PiUnrealBlueprint
                 return;
             }
 
+            if (!PendingRequests.TryAcquire())
+            {
+                QueueError(&Request, EErrorCode::TransportQueueFull,
+                    FString::Printf(TEXT("The per-connection pending request limit of %d has been reached."),
+                        FTransportLimits::MaxPendingRequestsPerConnection),
+                    TEXT("FTransportConnection::HandleJson"), false);
+                return;
+            }
+
             const TWeakPtr<FTransportConnection, ESPMode::ThreadSafe> WeakConnection = AsShared();
             AsyncTask(ENamedThreads::GameThread, [WeakConnection, Request]()
             {
@@ -341,16 +467,16 @@ namespace PiUnrealBlueprint
                     return;
                 }
                 check(IsInGameThread());
-                FProtocolResponse Response = FCoreService::Get().Dispatch(Request);
-                Response.Id = Request.Id;
-                Response.IdJsonValue = Request.IdJsonValue;
-                if (Request.Method == TEXT("unreal_status") && Response.Result.IsValid())
+                FCoreService::Get().DispatchAsync(Request, [WeakConnection, Request](FProtocolResponse&& Response)
                 {
-                    Response.Result->SetStringField(TEXT("serviceState"), LexToString(EServiceState::Connected));
-                    Response.Result->SetBoolField(TEXT("transportAvailable"), true);
-                    Response.Result->RemoveField(TEXT("unavailableReason"));
-                }
-                Connection->QueueResponse(Response);
+                    const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe> CurrentConnection = WeakConnection.Pin();
+                    if (!CurrentConnection.IsValid()) return;
+                    CurrentConnection->PendingRequests.Release();
+                    if (!CurrentConnection->IsRunning()) return;
+                    Response.Id = Request.Id;
+                    Response.IdJsonValue = Request.IdJsonValue;
+                    CurrentConnection->QueueResponse(Response);
+                });
             });
         }
 
@@ -450,7 +576,9 @@ namespace PiUnrealBlueprint
         FThreadSafeBool bAuthenticated;
         FThreadSafeBool bCloseAfterDrain;
         TArray<uint8> ReceiveBuffer;
-        TQueue<TArray<uint8>, EQueueMode::Mpsc> Outgoing;
+        FBoundedTransportQueue Outgoing;
+        FPendingRequestLimiter PendingRequests;
+        FCriticalSection OverflowMutex;
     };
 
     class FTransportServer::FImpl
@@ -508,11 +636,12 @@ namespace PiUnrealBlueprint
             if (Config.bWriteSessionDescriptor && !WriteSessionDescriptor(Config, OutError))
             {
                 Stop();
-                SetState(EServiceState::Faulted);
+                SetState(EServiceState::Faulted, OutError);
                 return false;
             }
 
             SetState(EServiceState::Listening);
+            JobProgressHandle = FJobManager::Get().OnProgress().AddRaw(this, &FImpl::HandleJobProgress);
             CleanupTickerHandle = FTicker::GetCoreTicker().AddTicker(
                 FTickerDelegate::CreateRaw(this, &FImpl::TickCleanup), 1.0f);
             OutError = FProtocolError();
@@ -531,6 +660,11 @@ namespace PiUnrealBlueprint
             {
                 FTicker::GetCoreTicker().RemoveTicker(CleanupTickerHandle);
                 CleanupTickerHandle.Reset();
+            }
+            if (JobProgressHandle.IsValid())
+            {
+                FJobManager::Get().OnProgress().Remove(JobProgressHandle);
+                JobProgressHandle.Reset();
             }
             if (Listener.IsValid())
             {
@@ -565,6 +699,7 @@ namespace PiUnrealBlueprint
                 AuthenticatedConnections = 0;
                 State = EServiceState::Stopped;
             }
+            FRuntimeStatusRegistry::Get().SetTransportStatus(EServiceState::Stopped, false);
         }
 
         bool HandleConnectionAccepted(FSocket* ClientSocket, const FIPv4Endpoint& RemoteEndpoint)
@@ -603,14 +738,30 @@ namespace PiUnrealBlueprint
             return GetState() != EServiceState::Stopped;
         }
 
+        void HandleJobProgress(const FJobProgress& Progress)
+        {
+            FScopeLock Lock(&ConnectionsMutex);
+            for (const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe>& Connection : Connections)
+            {
+                if (Connection.IsValid() && Connection->IsRunning() && Connection->IsAuthenticated())
+                    Connection->QueueNotification(Progress);
+            }
+        }
+
         void OnAuthenticationChanged(const bool bAuthenticated)
         {
-            FScopeLock Lock(&StateMutex);
-            AuthenticatedConnections = FMath::Max(0, AuthenticatedConnections + (bAuthenticated ? 1 : -1));
-            if (State != EServiceState::Stopped && State != EServiceState::Faulted)
+            EServiceState NewState;
             {
-                State = AuthenticatedConnections > 0 ? EServiceState::Connected : EServiceState::Listening;
+                FScopeLock Lock(&StateMutex);
+                AuthenticatedConnections = FMath::Max(0, AuthenticatedConnections + (bAuthenticated ? 1 : -1));
+                if (State != EServiceState::Stopped && State != EServiceState::Faulted)
+                {
+                    State = AuthenticatedConnections > 0 ? EServiceState::Connected : EServiceState::Listening;
+                }
+                NewState = State;
             }
+            FRuntimeStatusRegistry::Get().SetTransportStatus(
+                NewState, NewState == EServiceState::Listening || NewState == EServiceState::Connected || NewState == EServiceState::Busy);
         }
 
         EServiceState GetState() const
@@ -619,10 +770,16 @@ namespace PiUnrealBlueprint
             return State;
         }
 
-        void SetState(const EServiceState NewState)
+        void SetState(const EServiceState NewState, const FProtocolError& Error = FProtocolError())
         {
-            FScopeLock Lock(&StateMutex);
-            State = NewState;
+            {
+                FScopeLock Lock(&StateMutex);
+                State = NewState;
+            }
+            const bool bAvailable = NewState == EServiceState::Listening
+                || NewState == EServiceState::Connected
+                || NewState == EServiceState::Busy;
+            FRuntimeStatusRegistry::Get().SetTransportStatus(NewState, bAvailable, Error);
         }
 
         bool WriteSessionDescriptor(const FTransportServerConfig& Config, FProtocolError& OutError)
@@ -726,7 +883,7 @@ namespace PiUnrealBlueprint
                 ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ListenSocket);
                 ListenSocket = nullptr;
             }
-            SetState(EServiceState::Faulted);
+            SetState(EServiceState::Faulted, OutError);
             return false;
         }
 
@@ -741,6 +898,7 @@ namespace PiUnrealBlueprint
         FSocket* ListenSocket = nullptr;
         TUniquePtr<FTcpListener> Listener;
         FDelegateHandle CleanupTickerHandle;
+        FDelegateHandle JobProgressHandle;
         TArray<TSharedPtr<FTransportConnection, ESPMode::ThreadSafe>> Connections;
     };
 

@@ -52,7 +52,11 @@ function handleSocket(socket: Socket): void {
 }
 
 async function listen(handler: (socket: Socket) => void): Promise<number> {
-  server = createServer(handler);
+  server = createServer((socket) => {
+    // 客户端超时或取消时会主动断开，测试服务端将对端重置视为预期清理。
+    socket.on("error", () => undefined);
+    handler(socket);
+  });
   await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("missing test server port");

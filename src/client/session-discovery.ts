@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { join, win32 } from "node:path";
 import { ERROR_CODES, UnrealBlueprintError } from "../shared/errors.js";
 import { isJsonObject, type JsonObject } from "../shared/json.js";
@@ -27,6 +28,7 @@ export interface SessionQuery {
 export interface DiscoveryOptions {
   readonly sessionsDirectory?: string;
   readonly isProcessAlive?: (pid: number) => boolean;
+  readonly isSessionReachable?: (session: EditorSession) => Promise<boolean>;
   readonly readSessionFile?: (descriptorPath: string) => Promise<string>;
 }
 
@@ -57,12 +59,29 @@ function processIsAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return isNodeError(error) && error.code === "EPERM";
+    // Windows reports EPERM for nonexistent PIDs; Pi and UE run as the same user, so it is not a usable liveness signal there.
+    return process.platform !== "win32" && isNodeError(error) && error.code === "EPERM";
   }
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function sessionIsReachable(session: EditorSession): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: session.host, port: session.port });
+    let settled = false;
+    const finish = (reachable: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(reachable);
+    };
+    socket.setTimeout(250, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
 }
 
 function requireString(object: JsonObject, key: string): string {
@@ -120,6 +139,8 @@ function matchesQuery(session: EditorSession, query: SessionQuery, canonicalQuer
 async function scanSessions(query: SessionQuery, options: DiscoveryOptions): Promise<DiscoveryScan> {
   const directory = options.sessionsDirectory ?? defaultSessionsDirectory();
   const alive = options.isProcessAlive ?? processIsAlive;
+  // Injected PID checks are used by deterministic unit tests; production discovery also proves the descriptor port is live.
+  const reachable = options.isSessionReachable ?? (options.isProcessAlive ? async () => true : sessionIsReachable);
   const readDescriptor = options.readSessionFile ?? ((path: string) => readFile(path, "utf8"));
   const canonicalQueryUproject = query.uproject === undefined ? undefined : canonicalizeUproject(query.uproject);
   let names: string[];
@@ -138,7 +159,7 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions): Pro
     try {
       const session = parseSession(JSON.parse(await readDescriptor(descriptorPath)), descriptorPath);
       if (!matchesQuery(session, query, canonicalQueryUproject)) continue;
-      if (!alive(session.pid)) {
+      if (!alive(session.pid) || !(await reachable(session))) {
         stale.push(session);
         continue;
       }

@@ -5,7 +5,7 @@
 
 namespace PiUnrealBlueprint
 {
-    static const TCHAR* const PluginVersion = TEXT("0.1.0");
+    static const TCHAR* const PluginVersion = TEXT("1.0.0");
     static const TCHAR* const ProtocolVersion = TEXT("1.0.0");
 
     enum class EServiceState : uint8
@@ -23,13 +23,12 @@ namespace PiUnrealBlueprint
     {
         Queued,
         Preflight,
-        Backup,
         Modify,
         Compile,
         Save,
         Reload,
         Verify,
-        Recover,
+        Stopping,
         Succeeded,
         Failed,
         Cancelled
@@ -45,7 +44,22 @@ namespace PiUnrealBlueprint
         AuthenticationRequired,
         AuthenticationFailed,
         TransportError,
+        RequestConflict,
+        RequestNotFound,
+        RequestInterrupted,
+        JournalCorrupt,
+        JournalIoError,
+        InvalidArgument,
+        UnknownField,
+        UnknownOperation,
+        TypeMismatch,
+        AssetNotFound,
+        ValidationFailed,
+        VerificationFailed,
         NotImplemented,
+        JobQueueFull,
+        WriteLeaseExpired,
+        TransportQueueFull,
         InternalError
     };
 

@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          clean: false
+          clean: true
 
       - name: Validate documentation baseline
         shell: python
@@ -36,6 +36,9 @@ jobs:
               "Docs/product-scope.md", "Docs/product-scope.zh-CN.md",
               "Docs/architecture.md", "Docs/architecture.zh-CN.md",
               "Docs/ci-and-release.md", "Docs/ci-and-release.zh-CN.md",
+              "Docs/cli-reference.md", "Docs/cli-reference.zh-CN.md",
+              "Docs/setup.md", "Docs/setup.zh-CN.md",
+              "Docs/source-control-recovery.md", "Docs/source-control-recovery.zh-CN.md",
               "Docs/v1-release-gate.md", "Docs/v1-release-gate.zh-CN.md",
           ]
           missing = [name for name in required if not Path(name).is_file()]
@@ -66,7 +69,7 @@ jobs:
             echo "Pre-v1 scaffolding: package.json/package-lock.json is not complete, so package checks are not available yet."
             exit 0
           fi
-          npm ci
+          npm ci --ignore-scripts
           npm run check
 
       - name: Enforce public-runner trust boundary
