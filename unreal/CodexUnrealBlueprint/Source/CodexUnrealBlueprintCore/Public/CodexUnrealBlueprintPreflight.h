@@ -27,7 +27,13 @@ namespace CodexUnrealBlueprint
         TMap<FString, FString> ExpectedStructureHashes;
         TMap<FString, uint64> EstimatedNewPackageBytes;
         TFunction<bool(const FString& PackageName, FString& OutHash, FString& OutError)> StateHashResolver;
+        TFunction<bool()> IsCancellationRequested;
+        TFunction<void(int32 Completed, int32 Total, const FString& Message, const FString& PackageName)> ReportProgress;
+        TFunction<void()> Heartbeat;
         TArray<FString> AllowedExternalPackageRoots;
+        double ImpactDiscoveryDurationMs = 0.0;
+        int32 AssetRegistryReferencerCount = 0;
+        int32 MaximumImpactPackageCount = 512;
         uint64 MinimumFreeSpaceReserveBytes = 256ull * 1024ull * 1024ull;
     };
 
@@ -49,6 +55,8 @@ namespace CodexUnrealBlueprint
         bool bDirectWrite = false;
         bool bCompileCheck = false;
         bool bReferenceCheck = false;
+        bool bLoadedByPreflight = false;
+        double CheckDurationMs = 0.0;
         TArray<int32> OperationIndices;
         TArray<FString> ReferencedFrom;
         UPackage* Package = nullptr;
@@ -72,6 +80,18 @@ namespace CodexUnrealBlueprint
         TArray<FString> CompileOrder;
         FSourceControlResult SourceControl;
         TArray<FPreflightIssue> Issues;
+        double TotalDurationMs = 0.0;
+        double ImpactDiscoveryDurationMs = 0.0;
+        double PackageChecksDurationMs = 0.0;
+        double TypeReferenceChecksDurationMs = 0.0;
+        double SourceControlDurationMs = 0.0;
+        double DiskSpaceCheckDurationMs = 0.0;
+        double CompileOrderDurationMs = 0.0;
+        int32 AssetRegistryReferencerCount = 0;
+        int32 LoadedPackageCount = 0;
+        int32 DirectWritePackageCount = 0;
+        int32 CompileCheckPackageCount = 0;
+        int32 ReferenceCheckPackageCount = 0;
     };
 
     class CODEXUNREALBLUEPRINTCORE_API FWritePreflight

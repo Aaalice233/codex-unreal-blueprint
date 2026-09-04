@@ -5,6 +5,7 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "HAL/PlatformFilemanager.h"
 #include "HAL/PlatformMisc.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
@@ -14,6 +15,8 @@
 
 namespace CodexUnrealBlueprint
 {
+    DEFINE_LOG_CATEGORY_STATIC(LogCodexUnrealBlueprintPreflight, Log, All);
+
     namespace
     {
         void AddIssue(
@@ -149,12 +152,21 @@ namespace CodexUnrealBlueprint
 
     FPreflightResult FWritePreflight::Run(const FPreflightRequest& Request)
     {
+        const double PreflightStartedAt = FPlatformTime::Seconds();
         FPreflightResult Result;
+        Result.ImpactDiscoveryDurationMs = Request.ImpactDiscoveryDurationMs;
+        Result.AssetRegistryReferencerCount = Request.AssetRegistryReferencerCount;
+        const auto Finish = [&Result, PreflightStartedAt]()
+        {
+            Result.TotalDurationMs = Result.ImpactDiscoveryDurationMs
+                + (FPlatformTime::Seconds() - PreflightStartedAt) * 1000.0;
+            return Result;
+        };
         if (!IsInGameThread())
         {
             AddIssue(Result, TEXT("preflight.gameThreadRequired"),
                 TEXT("Write preflight must run on the Unreal Game Thread."));
-            return Result;
+            return Finish();
         }
 
         TArray<FString> TargetPackages;
@@ -177,10 +189,17 @@ namespace CodexUnrealBlueprint
             }
         }
         ImpactPackages.Sort();
+        if (Request.MaximumImpactPackageCount < 1 || ImpactPackages.Num() > Request.MaximumImpactPackageCount)
+        {
+            AddIssue(Result, TEXT("preflight.impactScopeTooLarge"),
+                FString::Printf(TEXT("Preflight discovered %d affected packages; the safe limit is %d. Narrow the request or inspect the referencer graph."),
+                    ImpactPackages.Num(), Request.MaximumImpactPackageCount));
+            return Finish();
+        }
         if (ImpactPackages.Num() == 0)
         {
             AddIssue(Result, TEXT("preflight.noImpactPackages"), TEXT("The write request has no affected packages."));
-            return Result;
+            return Finish();
         }
 
         TMap<FString, FString> ExpectedByPackage;
@@ -222,8 +241,19 @@ namespace CodexUnrealBlueprint
         TArray<FString> ExistingFiles;
         TArray<FString> NewFiles;
         uint64 WriteBytes = 0;
-        for (const FString& PackageName : ImpactPackages)
+        const double PackageChecksStartedAt = FPlatformTime::Seconds();
+        for (int32 PackageIndex = 0; PackageIndex < ImpactPackages.Num(); ++PackageIndex)
         {
+            const FString& PackageName = ImpactPackages[PackageIndex];
+            if (Request.IsCancellationRequested && Request.IsCancellationRequested())
+            {
+                AddIssue(Result, TEXT("preflight.cancelled"), TEXT("Preflight was cancelled between package checks."), PackageName);
+                break;
+            }
+            if (Request.ReportProgress)
+                Request.ReportProgress(PackageIndex, ImpactPackages.Num(), TEXT("Checking affected package metadata."), PackageName);
+            if (Request.Heartbeat) Request.Heartbeat();
+            const double PackageStartedAt = FPlatformTime::Seconds();
             if (!FPackageName::IsValidLongPackageName(PackageName, true))
             {
                 AddIssue(Result, TEXT("preflight.invalidPackageName"),
@@ -236,6 +266,9 @@ namespace CodexUnrealBlueprint
             Impact.bDirectWrite = TargetPackages.Contains(PackageName);
             Impact.bCompileCheck = !Impact.bDirectWrite && Request.CompilePackageNames.Contains(PackageName);
             Impact.bReferenceCheck = !Impact.bDirectWrite && !Impact.bCompileCheck;
+            Result.DirectWritePackageCount += Impact.bDirectWrite ? 1 : 0;
+            Result.CompileCheckPackageCount += Impact.bCompileCheck ? 1 : 0;
+            Result.ReferenceCheckPackageCount += Impact.bReferenceCheck ? 1 : 0;
             Impact.OperationIndices = Request.OperationIndicesByPackage.FindRef(PackageName);
             Impact.ReferencedFrom = Request.ReferencedFromByPackage.FindRef(PackageName);
             if (const FString* AssetPath = AssetByPackage.Find(PackageName)) Impact.AssetPath = *AssetPath;
@@ -275,21 +308,28 @@ namespace CodexUnrealBlueprint
                     FString::Printf(TEXT("Package is outside project Content and its mount root was not explicitly enabled: %s."), *PackageName),
                     PackageName);
             }
-            Impact.bWasLoaded = FindPackage(nullptr, *PackageName) != nullptr;
-            Impact.Package = Impact.bExistsOnDisk
-                ? LoadPackage(nullptr, *PackageName, LOAD_None)
-                : FindPackage(nullptr, *PackageName);
-            if (Impact.bExistsOnDisk && Impact.Package == nullptr)
+            Impact.Package = FindPackage(nullptr, *PackageName);
+            Impact.bWasLoaded = Impact.Package != nullptr;
+            if (Impact.bDirectWrite && Impact.bExistsOnDisk && Impact.Package == nullptr)
+            {
+                UE_LOG(LogCodexUnrealBlueprintPreflight, Display,
+                    TEXT("Loading direct-write package %d/%d during preflight: %s"),
+                    PackageIndex + 1, ImpactPackages.Num(), *PackageName);
+                Impact.Package = LoadPackage(nullptr, *PackageName, LOAD_None);
+                Impact.bLoadedByPreflight = Impact.Package != nullptr;
+                if (Impact.bLoadedByPreflight) ++Result.LoadedPackageCount;
+            }
+            if (Impact.bDirectWrite && Impact.bExistsOnDisk && Impact.Package == nullptr)
             {
                 AddIssue(Result, TEXT("preflight.packageLoad"),
                     FString::Printf(TEXT("Failed to load affected package: %s."), *PackageName), PackageName);
                 continue;
             }
             Impact.bWasDirty = Impact.Package != nullptr && Impact.Package->IsDirty();
-            if (Impact.bWasDirty)
+            if (Impact.bWasDirty && (Impact.bDirectWrite || Impact.bCompileCheck))
             {
                 AddIssue(Result, TEXT("preflight.dirtyPackage"),
-                    FString::Printf(TEXT("Affected package has unsaved user changes: %s."), *PackageName), PackageName);
+                    FString::Printf(TEXT("A package that would be written or compiled has unsaved user changes: %s."), *PackageName), PackageName);
             }
             Impact.bReadOnly = Impact.bExistsOnDisk && PlatformFile.IsReadOnly(*Impact.Filename);
             if (Impact.bDirectWrite && Impact.bExistsOnDisk)
@@ -327,9 +367,25 @@ namespace CodexUnrealBlueprint
                     }
                 }
             }
+            Impact.CheckDurationMs = (FPlatformTime::Seconds() - PackageStartedAt) * 1000.0;
+            UE_LOG(LogCodexUnrealBlueprintPreflight, Verbose,
+                TEXT("Preflight package %d/%d checked in %.3f ms: %s (direct=%s compile=%s reference=%s loaded=%s)"),
+                PackageIndex + 1, ImpactPackages.Num(), Impact.CheckDurationMs, *PackageName,
+                Impact.bDirectWrite ? TEXT("true") : TEXT("false"),
+                Impact.bCompileCheck ? TEXT("true") : TEXT("false"),
+                Impact.bReferenceCheck ? TEXT("true") : TEXT("false"),
+                Impact.bLoadedByPreflight ? TEXT("true") : TEXT("false"));
             Result.ImpactPackages.Add(MoveTemp(Impact));
+            if (Request.ReportProgress)
+                Request.ReportProgress(PackageIndex + 1, ImpactPackages.Num(), TEXT("Checked affected package metadata."), PackageName);
+        }
+        Result.PackageChecksDurationMs = (FPlatformTime::Seconds() - PackageChecksStartedAt) * 1000.0;
+        if (Request.IsCancellationRequested && Request.IsCancellationRequested())
+        {
+            return Finish();
         }
 
+        const double TypeReferencesStartedAt = FPlatformTime::Seconds();
         for (const FTypeReferenceRequirement& Requirement : Request.TypeReferences)
         {
             if (Requirement.ObjectPath.TrimStartAndEnd().IsEmpty())
@@ -367,7 +423,9 @@ namespace CodexUnrealBlueprint
                 }
             }
         }
+        Result.TypeReferenceChecksDurationMs = (FPlatformTime::Seconds() - TypeReferencesStartedAt) * 1000.0;
 
+        const double SourceControlStartedAt = FPlatformTime::Seconds();
         Result.SourceControl = FWriteSourceControl::Inspect(ExistingFiles, NewFiles);
         if (!Result.SourceControl.bSucceeded)
         {
@@ -394,7 +452,9 @@ namespace CodexUnrealBlueprint
                 }
             }
         }
+        Result.SourceControlDurationMs = (FPlatformTime::Seconds() - SourceControlStartedAt) * 1000.0;
 
+        const double DiskSpaceStartedAt = FPlatformTime::Seconds();
         Result.RequiredBytes = WriteBytes + Request.MinimumFreeSpaceReserveBytes;
         uint64 TotalBytes = 0;
         if (!FPlatformMisc::GetDiskTotalAndFreeSpace(FPaths::ProjectDir(), TotalBytes, Result.FreeBytes))
@@ -405,8 +465,9 @@ namespace CodexUnrealBlueprint
         {
             AddIssue(Result, TEXT("preflight.diskSpace"),
                 FString::Printf(TEXT("Insufficient disk space: %llu bytes required, %llu bytes free."),
-                    Result.RequiredBytes, Result.FreeBytes));
+                Result.RequiredBytes, Result.FreeBytes));
         }
+        Result.DiskSpaceCheckDurationMs = (FPlatformTime::Seconds() - DiskSpaceStartedAt) * 1000.0;
 
         TArray<FString> CompilePackages;
         for (const FString& Input : Request.CompilePackageNames)
@@ -421,8 +482,18 @@ namespace CodexUnrealBlueprint
         {
             CompilePackages.AddUnique(PackageName);
         }
+        const double CompileOrderStartedAt = FPlatformTime::Seconds();
         BuildCompileOrder(CompilePackages, Result.CompileOrder);
+        Result.CompileOrderDurationMs = (FPlatformTime::Seconds() - CompileOrderStartedAt) * 1000.0;
         Result.bSucceeded = Result.Issues.Num() == 0;
+        Result.TotalDurationMs = Result.ImpactDiscoveryDurationMs
+            + (FPlatformTime::Seconds() - PreflightStartedAt) * 1000.0;
+        UE_LOG(LogCodexUnrealBlueprintPreflight, Display,
+            TEXT("Preflight completed: impacts=%d direct=%d compile=%d reference=%d registryReferencers=%d loaded=%d total=%.3fms discovery=%.3fms packageChecks=%.3fms"),
+            Result.ImpactPackages.Num(), Result.DirectWritePackageCount, Result.CompileCheckPackageCount,
+            Result.ReferenceCheckPackageCount, Result.AssetRegistryReferencerCount, Result.LoadedPackageCount,
+            Result.TotalDurationMs, Result.ImpactDiscoveryDurationMs,
+            Result.PackageChecksDurationMs);
         return Result;
     }
 }

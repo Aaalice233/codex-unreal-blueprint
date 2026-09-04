@@ -7,6 +7,7 @@
 - [ ] Automated tests cover session ambiguity, timeout, cancellation, `requestId` recovery, and partial-failure lists.
 - [ ] Protocol `2.0.0` validate/verify jobs, global structure hashes, package roles, component ranges/assertions, source-control semantics, and session heartbeats have automated coverage.
 - [ ] The 40-component Niagara clone-range performance E2E reports all six write phases and stays within its configured regression budget.
+- [ ] Clone-range validate with inherited Third Blueprints and a ResourceMap-like class referencer completes without loading the reference-only package and reports timing, role, and referencer statistics.
 - [ ] The UE4.27 Win64 plugin build and Automation tests pass.
 - [ ] Setup covers first/repeat install, Marketplace preservation, broken CLI, Editor occupancy, and managed boundaries.
 - [ ] Both release archives install from empty directories, four versions agree, and SHA-256 checks pass.

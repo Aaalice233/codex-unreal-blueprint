@@ -453,6 +453,9 @@ namespace CodexUnrealBlueprint
 
         FPreflightRequest PreflightRequest = Request.Preflight;
         PreflightRequest.StateHashResolver = Request.StateHashResolver;
+        PreflightRequest.IsCancellationRequested = Progress.IsCancellationRequested;
+        PreflightRequest.ReportProgress = Progress.Report;
+        PreflightRequest.Heartbeat = Progress.Heartbeat;
         for (const TSharedRef<IWriteOperation>& Operation : Request.Operations)
         {
             Operation->GatherPreflight(PreflightRequest);

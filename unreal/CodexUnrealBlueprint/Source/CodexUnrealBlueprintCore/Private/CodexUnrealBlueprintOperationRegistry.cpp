@@ -10,6 +10,7 @@
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/World.h"
 #include "Engine/UserDefinedStruct.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/PackageName.h"
 #include "CodexUnrealBlueprintAnimOperations.h"
 #include "CodexUnrealBlueprintAssetOperations.h"
@@ -304,15 +305,58 @@ namespace CodexUnrealBlueprint
             if (OutPackageNames) OutPackageNames->AddUnique(PackageName);
         }
 
-        void AddReferencerImpacts(const FString& ObjectOrPackagePath, FPreflightRequest& Request,
-            const int32 OperationIndex, TArray<FString>* OutPackageNames = nullptr)
+        enum class EBlueprintReferencerCompileScope : uint8
         {
+            AllBlueprintReferencers,
+            DerivedBlueprintsOnly
+        };
+
+        void FindDerivedBlueprintPackages(const FString& ObjectOrPackagePath, IAssetRegistry& Registry,
+            TSet<FString>& OutPackageNames)
+        {
+            const FAssetData TargetAsset = Registry.GetAssetByObjectPath(FName(*ObjectOrPackagePath));
+            if (!TargetAsset.IsValid()) return;
+            const FName GeneratedClassPath = TargetAsset.GetTagValueRef<FName>(FBlueprintTags::GeneratedClassPath);
+            if (GeneratedClassPath.IsNone()) return;
+
+            TArray<FName> ParentClassPaths = {GeneratedClassPath};
+            TSet<FName> VisitedClassPaths;
+            for (int32 ParentIndex = 0; ParentIndex < ParentClassPaths.Num(); ++ParentIndex)
+            {
+                const FName ParentClassPath = ParentClassPaths[ParentIndex];
+                if (ParentClassPath.IsNone() || VisitedClassPaths.Contains(ParentClassPath)) continue;
+                VisitedClassPaths.Add(ParentClassPath);
+
+                FARFilter Filter;
+                Filter.TagsAndValues.Add(FBlueprintTags::ParentClassPath, ParentClassPath.ToString());
+                TArray<FAssetData> Children;
+                if (!Registry.GetAssets(Filter, Children)) continue;
+                for (const FAssetData& Child : Children)
+                {
+                    OutPackageNames.Add(Child.PackageName.ToString());
+                    const FName ChildClassPath = Child.GetTagValueRef<FName>(FBlueprintTags::GeneratedClassPath);
+                    if (!ChildClassPath.IsNone() && !VisitedClassPaths.Contains(ChildClassPath))
+                        ParentClassPaths.AddUnique(ChildClassPath);
+                }
+            }
+        }
+
+        void AddReferencerImpacts(const FString& ObjectOrPackagePath, FPreflightRequest& Request,
+            const int32 OperationIndex, const EBlueprintReferencerCompileScope CompileScope,
+            TArray<FString>* OutPackageNames = nullptr)
+        {
+            const double StartedAt = FPlatformTime::Seconds();
             const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectOrPackagePath);
             if (!FPackageName::IsValidLongPackageName(PackageName, true)) return;
             FAssetRegistryModule& RegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+            IAssetRegistry& Registry = RegistryModule.Get();
             TArray<FName> Referencers;
-            RegistryModule.Get().GetReferencers(FName(*PackageName), Referencers,
+            Registry.GetReferencers(FName(*PackageName), Referencers,
                 UE::AssetRegistry::EDependencyCategory::Package);
+            Request.AssetRegistryReferencerCount += Referencers.Num();
+            TSet<FString> DerivedBlueprintPackages;
+            if (CompileScope == EBlueprintReferencerCompileScope::DerivedBlueprintsOnly)
+                FindDerivedBlueprintPackages(ObjectOrPackagePath, Registry, DerivedBlueprintPackages);
             for (const FName Referencer : Referencers)
             {
                 const FString ReferencerPackage = Referencer.ToString();
@@ -320,14 +364,26 @@ namespace CodexUnrealBlueprint
                 Request.OperationIndicesByPackage.FindOrAdd(ReferencerPackage).AddUnique(OperationIndex);
                 Request.ReferencedFromByPackage.FindOrAdd(ReferencerPackage).AddUnique(ObjectOrPackagePath);
                 TArray<FAssetData> Assets;
-                RegistryModule.Get().GetAssetsByPackageName(Referencer, Assets, true);
+                Registry.GetAssetsByPackageName(Referencer, Assets, true);
                 const bool bBlueprintPackage = Assets.ContainsByPredicate([](const FAssetData& Asset)
                 {
                     return Asset.AssetClass.ToString().Contains(TEXT("Blueprint"));
                 });
-                if (bBlueprintPackage) Request.CompilePackageNames.AddUnique(ReferencerPackage);
+                const bool bCompilePackage = CompileScope == EBlueprintReferencerCompileScope::DerivedBlueprintsOnly
+                    ? DerivedBlueprintPackages.Contains(ReferencerPackage)
+                    : bBlueprintPackage;
+                if (bCompilePackage) Request.CompilePackageNames.AddUnique(ReferencerPackage);
                 if (OutPackageNames) OutPackageNames->AddUnique(ReferencerPackage);
             }
+            for (const FString& DerivedPackage : DerivedBlueprintPackages)
+            {
+                Request.AdditionalImpactPackageNames.AddUnique(DerivedPackage);
+                Request.CompilePackageNames.AddUnique(DerivedPackage);
+                Request.OperationIndicesByPackage.FindOrAdd(DerivedPackage).AddUnique(OperationIndex);
+                Request.ReferencedFromByPackage.FindOrAdd(DerivedPackage).AddUnique(ObjectOrPackagePath);
+                if (OutPackageNames) OutPackageNames->AddUnique(DerivedPackage);
+            }
+            Request.ImpactDiscoveryDurationMs += (FPlatformTime::Seconds() - StartedAt) * 1000.0;
         }
 
         bool RequiresReferencerImpacts(const FString& OperationName)
@@ -335,6 +391,16 @@ namespace CodexUnrealBlueprint
             // A class-default value change does not alter the Blueprint's public structure. Loading and compiling
             // every referencer can synchronously pull an entire project's hard-reference graph into the Editor.
             return OperationName != TEXT("asset.classDefault.set");
+        }
+
+        EBlueprintReferencerCompileScope ReferencerCompileScope(const FString& OperationName)
+        {
+            // Component mutations affect the target class and its inheritance chain. Other Blueprints that merely
+            // hold a class/resource reference must remain reference-only or ResourceMap aggregators can expand a
+            // small edit into a project-wide compile and load operation.
+            return OperationName.StartsWith(TEXT("component."))
+                ? EBlueprintReferencerCompileScope::DerivedBlueprintsOnly
+                : EBlueprintReferencerCompileScope::AllBlueprintReferencers;
         }
 
         bool ParseComponentReference(const TSharedPtr<FJsonObject>& Json, FComponentReference& Out)
@@ -411,7 +477,7 @@ namespace CodexUnrealBlueprint
                 {
                     AddPackageImpact(Path, OperationName != TEXT("asset.delete"), Request, Index);
                     if (OperationName != TEXT("asset.create") && RequiresReferencerImpacts(OperationName))
-                        AddReferencerImpacts(Path, Request, Index);
+                        AddReferencerImpacts(Path, Request, Index, ReferencerCompileScope(OperationName));
                 }
                 if (Operation->TryGetStringField(TEXT("destinationPath"), Path)) AddPackageImpact(Path, true, Request, Index);
 
@@ -452,7 +518,7 @@ namespace CodexUnrealBlueprint
                 {
                     AddPackageImpact(AssetPath, Name != TEXT("asset.delete"), RuntimeImpacts, Index, &ImpactPackageNames);
                     if (RequiresReferencerImpacts(Name))
-                        AddReferencerImpacts(AssetPath, RuntimeImpacts, Index, &ImpactPackageNames);
+                        AddReferencerImpacts(AssetPath, RuntimeImpacts, Index, ReferencerCompileScope(Name), &ImpactPackageNames);
                 }
                 FString DestinationPath;
                 if (Operation->TryGetStringField(TEXT("destinationPath"), DestinationPath))

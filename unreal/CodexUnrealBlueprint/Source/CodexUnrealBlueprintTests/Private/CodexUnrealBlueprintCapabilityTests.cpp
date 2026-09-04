@@ -25,7 +25,9 @@
 #include "Misc/PackageName.h"
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
+#include "PackageTools.h"
 #include "UObject/Package.h"
+#include "UObject/StrongObjectPtr.h"
 #include "GameFramework/Actor.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -166,6 +168,76 @@ namespace
         return false;
     }
 
+    bool DispatchValidation(const FString& RequestId, const TArray<TSharedRef<FJsonObject>>& Operations,
+        FJobSnapshot& OutSnapshot, FString& OutError, const double TimeoutSeconds = 30.0)
+    {
+        TArray<TSharedPtr<FJsonValue>> OperationValues;
+        for (const TSharedRef<FJsonObject>& Operation : Operations)
+            OperationValues.Add(MakeShared<FJsonValueObject>(Operation));
+        FProtocolRequest Request;
+        Request.Id = RequestId;
+        Request.Method = TEXT("blueprint.validate");
+        Request.Params = MakeShared<FJsonObject>();
+        Request.Params->SetStringField(TEXT("requestId"), RequestId);
+        Request.Params->SetArrayField(TEXT("operations"), OperationValues);
+        const FProtocolResponse Response = FCoreService::Get().Dispatch(Request);
+        if (!Response.IsSuccess() || !Response.Result.IsValid())
+        {
+            OutError = Response.Error.IsSet() ? Response.Error.GetValue().Message : TEXT("Validate dispatch returned no result.");
+            return false;
+        }
+        FString JobId;
+        if (!Response.Result->TryGetStringField(TEXT("jobId"), JobId))
+        {
+            OutError = TEXT("Validate dispatch did not return jobId.");
+            return false;
+        }
+        const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
+        while (FPlatformTime::Seconds() < Deadline)
+        {
+            FJobManager::Get().Tick(FPlatformTime::Seconds());
+            FEditorSafeDispatcher::Get().Tick();
+            FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+            if (FJobManager::Get().Get(JobId, OutSnapshot) && OutSnapshot.bTerminal)
+            {
+                if (OutSnapshot.Phase == EJobPhase::Succeeded) return true;
+                OutError = OutSnapshot.Error.IsSet() ? OutSnapshot.Error.GetValue().Message
+                    : FString::Printf(TEXT("Validate job ended in phase %s."), LexToString(OutSnapshot.Phase));
+                return false;
+            }
+            FPlatformProcess::Sleep(0.005f);
+        }
+        OutError = TEXT("Timed out waiting for the public validate job.");
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* FindImpactPackage(const TSharedPtr<FJsonObject>& Result, const FString& PackageName)
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Impacts = nullptr;
+        if (!Result.IsValid() || !Result->TryGetArrayField(TEXT("impactPackages"), Impacts) || !Impacts) return nullptr;
+        for (const TSharedPtr<FJsonValue>& Value : *Impacts)
+        {
+            const TSharedPtr<FJsonObject>* Impact = nullptr;
+            FString Candidate;
+            if (Value.IsValid() && Value->TryGetObject(Impact) && Impact
+                && (*Impact)->TryGetStringField(TEXT("packageName"), Candidate) && Candidate == PackageName)
+                return Impact;
+        }
+        return nullptr;
+    }
+
+    bool ImpactHasRole(const TSharedPtr<FJsonObject>* Impact, const FString& Role)
+    {
+        if (!Impact || !Impact->IsValid()) return false;
+        const TArray<TSharedPtr<FJsonValue>>* Roles = nullptr;
+        if (!(*Impact)->TryGetArrayField(TEXT("roles"), Roles) || !Roles) return false;
+        return Roles->ContainsByPredicate([&Role](const TSharedPtr<FJsonValue>& Value)
+        {
+            FString Candidate;
+            return Value.IsValid() && Value->TryGetString(Candidate) && Candidate == Role;
+        });
+    }
+
     bool PrepareNiagaraCloneFixture(FScopedFixture& Fixture, const FString& Leaf,
         UBlueprint*& OutBlueprint, FString& OutFilename)
     {
@@ -205,6 +277,16 @@ namespace
         Overrides->SetBoolField(TEXT("bAutoActivate"), false);
         Operation->SetObjectField(TEXT("propertyOverrides"), Overrides);
         return Operation;
+    }
+
+    bool AddBlueprintClassReferenceVariable(UBlueprint* Blueprint, UBlueprint* ReferencedBlueprint, const FName VariableName)
+    {
+        if (!Blueprint || !ReferencedBlueprint || !ReferencedBlueprint->GeneratedClass) return false;
+        FBlueprintVariableDefinition Definition;
+        Definition.Name = VariableName;
+        Definition.Type = PinType(UEdGraphSchema_K2::PC_Class);
+        Definition.Type.PinSubCategoryObject = ReferencedBlueprint->GeneratedClass.Get();
+        return FBlueprintTypeSystem::AddVariable(Blueprint, Definition).bSuccess;
     }
 
     bool ValidateNiagaraCloneRange(FAutomationTestBase& Test, UBlueprint* Blueprint, const int32 EndIndex)
@@ -469,6 +551,25 @@ bool FCodexClassDefaultPreflightScopeUnitTest::RunTest(const FString& Parameters
         Preflight.TargetPackageNames.Num(), 1);
     TestTrue(TEXT("class-default preflight includes its target package"),
         Preflight.TargetPackageNames.Contains(Target->GetOutermost()->GetName()));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexPreflightImpactScopeLimitUnitTest,
+    "CodexUnrealBlueprint.Unit.Preflight.ImpactScopeLimit", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexPreflightImpactScopeLimitUnitTest::RunTest(const FString& Parameters)
+{
+    FPreflightRequest Request;
+    Request.TargetPackageNames.Add(TEXT("/Game/CodexAutomation/Direct"));
+    Request.AdditionalImpactPackageNames.Add(TEXT("/Game/CodexAutomation/Reference"));
+    Request.MaximumImpactPackageCount = 1;
+    const FPreflightResult Result = FWritePreflight::Run(Request);
+    TestFalse(TEXT("oversized impact scope fails explicitly"), Result.bSucceeded);
+    TestTrue(TEXT("oversized impact scope returns a stable issue"), Result.Issues.ContainsByPredicate([](const FPreflightIssue& Issue)
+    {
+        return Issue.Code == TEXT("preflight.impactScopeTooLarge");
+    }));
+    TestEqual(TEXT("oversized scope does not load any package"), Result.LoadedPackageCount, 0);
     return true;
 }
 
@@ -749,6 +850,123 @@ bool FCodexPublicInspectionLevelAndValidationTest::RunTest(const FString& Parame
     TestTrue(TEXT("validate runs operation GatherPreflight type-reference checks"), bFoundMissingReference);
     TestFalse(TEXT("validate does not dirty the target package"), Blueprint->GetOutermost()->IsDirty());
     TestEqual(TEXT("validate does not apply the component operation"), CountComponents(Blueprint, TEXT("NeverAdded")), 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexMetadataOnlyReferencerPreflightE2ETest,
+    "CodexUnrealBlueprint.E2E.Preflight.MetadataOnlyReferencers", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexMetadataOnlyReferencerPreflightE2ETest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("MetadataOnlyReferencers"));
+    UBlueprint* First = nullptr;
+    UBlueprint* PhoenixFirst = nullptr;
+    FString FirstFilename;
+    FString PhoenixFirstFilename;
+    if (!TestTrue(TEXT("First fixture is ready"),
+        PrepareNiagaraCloneFixture(Fixture, TEXT("BP_First"), First, FirstFilename))
+        || !TestTrue(TEXT("Phoenix First fixture is ready"),
+            PrepareNiagaraCloneFixture(Fixture, TEXT("BP_PhoenixFirst"), PhoenixFirst, PhoenixFirstFilename))) return false;
+
+    UBlueprint* Third = Fixture.CreateBlueprint(TEXT("BP_Third"), First->GeneratedClass);
+    if (!TestNotNull(TEXT("derived Third fixture exists"), Third)) return false;
+    FKismetEditorUtilities::CompileBlueprint(Third);
+    FString ThirdFilename;
+    if (!TestTrue(TEXT("derived Third fixture saved"), Fixture.Save(Third, ThirdFilename))) return false;
+    Third->GetOutermost()->SetDirtyFlag(false);
+
+    UBlueprint* PhoenixThird = Fixture.CreateBlueprint(TEXT("BP_PhoenixThird"), PhoenixFirst->GeneratedClass);
+    if (!TestNotNull(TEXT("derived Phoenix Third fixture exists"), PhoenixThird)) return false;
+    FKismetEditorUtilities::CompileBlueprint(PhoenixThird);
+    FString PhoenixThirdFilename;
+    if (!TestTrue(TEXT("derived Phoenix Third fixture saved"), Fixture.Save(PhoenixThird, PhoenixThirdFilename))) return false;
+    PhoenixThird->GetOutermost()->SetDirtyFlag(false);
+
+    UBlueprint* ResourceMap = Fixture.CreateBlueprint(TEXT("BP_ResourceMap"));
+    if (!TestNotNull(TEXT("ResourceMap-like fixture exists"), ResourceMap)
+        || !TestTrue(TEXT("ResourceMap-like fixture references First without inheriting it"),
+            AddBlueprintClassReferenceVariable(ResourceMap, First, TEXT("RegisteredFirstClass")))
+        || !TestTrue(TEXT("ResourceMap-like fixture references Phoenix First without inheriting it"),
+            AddBlueprintClassReferenceVariable(ResourceMap, PhoenixFirst, TEXT("RegisteredPhoenixFirstClass")))) return false;
+    FKismetEditorUtilities::CompileBlueprint(ResourceMap);
+    FString ResourceMapFilename;
+    if (!TestTrue(TEXT("ResourceMap-like fixture saved"), Fixture.Save(ResourceMap, ResourceMapFilename))) return false;
+    ResourceMap->GetOutermost()->SetDirtyFlag(false);
+
+    IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+    Registry.ScanModifiedAssetFiles({FirstFilename, PhoenixFirstFilename, ThirdFilename, PhoenixThirdFilename, ResourceMapFilename});
+    TArray<FName> Referencers;
+    Registry.GetReferencers(First->GetOutermost()->GetFName(), Referencers,
+        UE::AssetRegistry::EDependencyCategory::Package);
+    if (!TestTrue(TEXT("derived Third is a package referencer"), Referencers.Contains(Third->GetOutermost()->GetFName()))
+        || !TestTrue(TEXT("ResourceMap-like Blueprint is a package referencer"),
+            Referencers.Contains(ResourceMap->GetOutermost()->GetFName()))) return false;
+    TArray<FName> PhoenixReferencers;
+    Registry.GetReferencers(PhoenixFirst->GetOutermost()->GetFName(), PhoenixReferencers,
+        UE::AssetRegistry::EDependencyCategory::Package);
+    if (!TestTrue(TEXT("derived Phoenix Third is a package referencer"),
+            PhoenixReferencers.Contains(PhoenixThird->GetOutermost()->GetFName()))
+        || !TestTrue(TEXT("ResourceMap-like Blueprint references Phoenix First"),
+            PhoenixReferencers.Contains(ResourceMap->GetOutermost()->GetFName()))) return false;
+
+    const FString FirstPackage = First->GetOutermost()->GetName();
+    const FString ThirdPackage = Third->GetOutermost()->GetName();
+    const FString PhoenixFirstPackage = PhoenixFirst->GetOutermost()->GetName();
+    const FString PhoenixThirdPackage = PhoenixThird->GetOutermost()->GetName();
+    const FString ResourceMapPackage = ResourceMap->GetOutermost()->GetName();
+    TStrongObjectPtr<UBlueprint> FirstGuard(First);
+    TStrongObjectPtr<UBlueprint> PhoenixFirstGuard(PhoenixFirst);
+    TStrongObjectPtr<UBlueprint> ThirdGuard(Third);
+    TStrongObjectPtr<UBlueprint> PhoenixThirdGuard(PhoenixThird);
+    UPackage* ResourceMapPackageObject = ResourceMap->GetOutermost();
+    ResourceMap = nullptr;
+    TArray<UPackage*> PackagesToUnload = {ResourceMapPackageObject};
+    if (!TestTrue(TEXT("ResourceMap-like referencer unloads before validate"), UPackageTools::UnloadPackages(PackagesToUnload)))
+        return false;
+    CollectGarbage(RF_NoFlags);
+    if (!TestNull(TEXT("ResourceMap-like package starts unloaded"), FindPackage(nullptr, *ResourceMapPackage))) return false;
+
+    FJobSnapshot Snapshot;
+    FString Error;
+    const double StartedAt = FPlatformTime::Seconds();
+    if (!TestTrue(TEXT("cloneRange validate completes with mixed referencers"),
+        DispatchValidation(Fixture.GetRunId() + TEXT("_validate"),
+            {MakeCloneRangeOperation(First, 36), MakeCloneRangeOperation(PhoenixFirst, 24)}, Snapshot, Error, 10.0)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const double DurationMs = (FPlatformTime::Seconds() - StartedAt) * 1000.0;
+    TestTrue(TEXT("metadata-only validate stays within fixture budget"), DurationMs < 5000.0);
+    TestTrue(TEXT("validate returns a successful result"), Snapshot.Result.IsValid() && Snapshot.Result->GetBoolField(TEXT("valid")));
+
+    const TSharedPtr<FJsonObject>* FirstImpact = FindImpactPackage(Snapshot.Result, FirstPackage);
+    const TSharedPtr<FJsonObject>* ThirdImpact = FindImpactPackage(Snapshot.Result, ThirdPackage);
+    const TSharedPtr<FJsonObject>* PhoenixFirstImpact = FindImpactPackage(Snapshot.Result, PhoenixFirstPackage);
+    const TSharedPtr<FJsonObject>* PhoenixThirdImpact = FindImpactPackage(Snapshot.Result, PhoenixThirdPackage);
+    const TSharedPtr<FJsonObject>* ResourceMapImpact = FindImpactPackage(Snapshot.Result, ResourceMapPackage);
+    TestTrue(TEXT("First remains the direct write"), ImpactHasRole(FirstImpact, TEXT("directWrite")));
+    TestTrue(TEXT("derived Third is a compile check"), ImpactHasRole(ThirdImpact, TEXT("compileCheck")));
+    TestTrue(TEXT("Phoenix First remains a direct write"), ImpactHasRole(PhoenixFirstImpact, TEXT("directWrite")));
+    TestTrue(TEXT("derived Phoenix Third is a compile check"), ImpactHasRole(PhoenixThirdImpact, TEXT("compileCheck")));
+    TestTrue(TEXT("ResourceMap-like Blueprint is reference-only"), ImpactHasRole(ResourceMapImpact, TEXT("referenceCheck")));
+    TestFalse(TEXT("ResourceMap-like Blueprint is not a compile check"), ImpactHasRole(ResourceMapImpact, TEXT("compileCheck")));
+    TestTrue(TEXT("reference-only package was not loaded by preflight"), ResourceMapImpact
+        && !(*ResourceMapImpact)->GetBoolField(TEXT("loadedByPreflight")));
+    TestNull(TEXT("validate leaves the reference-only package unloaded"), FindPackage(nullptr, *ResourceMapPackage));
+    TestFalse(TEXT("validate does not dirty First"), First->GetOutermost()->IsDirty());
+    TestNull(TEXT("validate does not apply cloneRange"), First->SimpleConstructionScript->FindSCSNode(TEXT("bp_MissileEffect11")));
+    TestNull(TEXT("validate does not apply Phoenix cloneRange"),
+        PhoenixFirst->SimpleConstructionScript->FindSCSNode(TEXT("bp_MissileEffect11")));
+
+    const TSharedPtr<FJsonObject>* Timing = nullptr;
+    const TSharedPtr<FJsonObject>* Stats = nullptr;
+    TestTrue(TEXT("validate returns preflight timing"), Snapshot.Result->TryGetObjectField(TEXT("timing"), Timing) && Timing
+        && (*Timing)->HasField(TEXT("totalMs")) && (*Timing)->HasField(TEXT("impactDiscoveryMs")));
+    TestTrue(TEXT("validate returns preflight stats"), Snapshot.Result->TryGetObjectField(TEXT("stats"), Stats) && Stats
+        && static_cast<int32>((*Stats)->GetNumberField(TEXT("loadedPackageCount"))) == 0
+        && static_cast<int32>((*Stats)->GetNumberField(TEXT("compileCheckPackageCount"))) == 2
+        && static_cast<int32>((*Stats)->GetNumberField(TEXT("referenceCheckPackageCount"))) >= 1);
     return true;
 }
 

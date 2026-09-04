@@ -33,6 +33,8 @@
 
 协议 `2.0.0` 下，`blueprint_validate`、`blueprint_apply` 和 `blueprint_verify` 都立即返回 `JobSnapshot`。Snapshot 包含 `method` 和 `durability`（只读 Job 为 `memory`，写入为 `journal`）。相同 `requestId`、method 和规范化参数返回原 Job；同一 ID 对应不同请求时返回 `REQUEST_CONFLICT`。
 
+终态 `blueprint_validate` 结果包含 Package 角色及原因、`compileOrder`、`timing` 和 `stats`。计时分别报告影响发现、Package 元数据检查、显式类型引用加载、Source Control、磁盘空间和编译顺序构建；统计包含 direct/compile/reference Package 数量、Asset Registry Referencer 数量，以及预检实际加载的直接 Package 数量。Validate 不会加载 reference-only 或尚未加载的 compile-only Package；每个 Package 会返回 `loadedByPreflight` 和 `checkDurationMs`。
+
 终态 `blueprint_apply` 结果包含 `timing.totalMs`、`timing.overheadMs` 和按执行顺序排列的 `timing.phases`。`preflight`、`modify`、`compile`、`save`、`reload`、`verify` 每个阶段都会报告 `phase`、`durationMs` 和 `itemCount`。计时覆盖 UE Pipeline 本身，不包含客户端传输、队列等待和 Fixture 准备。
 
 `blueprint_inspect` 返回不受 facet、过滤和分页影响的全局 `structureHash`，并带 `structureHashScope: "blueprint-structure-v1"` 及各完整请求 facet 的 Hash。`componentQuery` 先按名称、正则、Class 或继承关系过滤，再分页，并可选择字段与精确模板属性路径；结果同时报告组件总数和匹配数。

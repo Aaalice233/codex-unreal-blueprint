@@ -26,6 +26,8 @@ Asset inspection has three explicit layers:
 
 All long Blueprint work uses `requestId + method + canonical params` idempotency. Validate and verify jobs are memory-durable; write jobs use the Request Journal. Reusing an id for a different request is `REQUEST_CONFLICT`.
 
-Preflight classifies packages as `directWrite`, `compileCheck`, or `referenceCheck`. A write job performs one transaction, compiles direct targets and required Blueprint dependencies in dependency order, saves only direct targets, reloads the saved targets, restores clean compile-only dependencies from disk if verification compilation dirtied them, and finally checks direct assets, inherited children, and ordinary references. Source-control checkout, disk estimates, and file hashes are restricted to packages that can be saved.
+Preflight classifies packages as `directWrite`, `compileCheck`, or `referenceCheck`. Validate loads only direct-write targets; compile-only and reference-only packages are checked from Asset Registry and disk metadata, and an already-loaded dirty compile target still fails explicitly. Component mutations compile the recursive Blueprint inheritance chain while ordinary Blueprint, spawner, and ResourceMap references remain reference-only. Preflight exposes package-level progress, timing, role counts, referencer counts, and a bounded-scope failure before metadata processing grows beyond 512 packages.
+
+A write job performs one transaction, loads and compiles direct targets and required Blueprint dependencies in dependency order, saves only direct targets, reloads the saved targets, restores clean compile-only dependencies from disk if verification compilation dirtied them, and finally checks direct assets, inherited children, and ordinary references. Source-control checkout, disk estimates, and file hashes are restricted to packages that can be saved.
 
 中文：[architecture.zh-CN.md](architecture.zh-CN.md)

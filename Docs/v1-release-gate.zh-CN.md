@@ -7,6 +7,7 @@
 - [ ] 会话歧义、超时、取消、`requestId` 恢复和部分失败清单有自动测试。
 - [ ] 协议 `2.0.0` 的 validate/verify Job、全局结构 Hash、Package 角色、批量组件、组件断言、Source Control 语义和 Session 心跳有自动测试。
 - [ ] 40 组件 Niagara clone-range 性能 E2E 报告全部六个写入阶段，并满足配置的回归预算。
+- [ ] 带继承 Third Blueprint 和 ResourceMap 类引用者的 clone-range Validate 能完成，不加载 reference-only Package，并报告耗时、角色和 Referencer 统计。
 - [ ] UE4.27 Win64 plugin 构建与 Automation tests 通过。
 - [ ] setup 的首次/重复安装、Marketplace 保留、损坏 CLI、Editor 占用和受管边界通过。
 - [ ] Release 两个 zip 可从空目录安装，四处版本一致，SHA-256 可验证。

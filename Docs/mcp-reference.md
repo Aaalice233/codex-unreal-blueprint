@@ -33,6 +33,8 @@ Offline inspection uses the parser bundled under `offline/`; it reconstructs Blu
 
 Protocol `2.0.0` returns a `JobSnapshot` from `blueprint_validate`, `blueprint_apply`, and `blueprint_verify`. Snapshots include `method` and `durability` (`memory` for read jobs, `journal` for writes). Submitting the same `requestId`, method, and canonical parameters returns the original job; a different request under the same id fails with `REQUEST_CONFLICT`.
 
+Terminal `blueprint_validate` results include package roles and reasons, `compileOrder`, `timing`, and `stats`. Timing separates impact discovery, package metadata checks, explicit type-reference loads, source control, disk space, and compile-order construction. Stats report direct/compile/reference package counts, Asset Registry referencer count, and how many direct packages preflight had to load. Reference-only and unloaded compile-only packages are never loaded by validate; `loadedByPreflight` and `checkDurationMs` are returned per package.
+
 Terminal `blueprint_apply` results include `timing.totalMs`, `timing.overheadMs`, and ordered `timing.phases`. Every phase entry reports `phase`, `durationMs`, and `itemCount` for `preflight`, `modify`, `compile`, `save`, `reload`, and `verify`. These measurements cover the UE pipeline itself; client transport, queue wait, and fixture setup are outside `totalMs`.
 
 `blueprint_inspect` returns a facet/filter/page-independent `structureHash` with `structureHashScope: "blueprint-structure-v1"`, plus hashes for each complete requested facet. `componentQuery` filters before pagination by names, regex, classes, or inheritance and can project fields and exact template property paths. Results report both total and matched component counts.

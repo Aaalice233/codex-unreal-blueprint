@@ -26,6 +26,8 @@ MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序�
 
 所有长时间 Blueprint 工作都以 `requestId + method + canonical params` 保证幂等。validate/verify Job 仅在内存中保存，写 Job 使用 Request Journal；同一 ID 对应不同请求时返回 `REQUEST_CONFLICT`。
 
-预检把 Package 分为 `directWrite`、`compileCheck` 和 `referenceCheck`。写 Job 只使用一个 transaction，按依赖顺序编译直接目标和必要 Blueprint 依赖，只保存直接目标，重载已保存目标；若验证编译把原本干净的 compile-only 依赖标脏，则从磁盘恢复，最后验证直接资产、子 Blueprint 继承结果和普通引用。Source Control checkout、磁盘估算和文件 Hash 仅覆盖可能保存的 Package。
+预检把 Package 分为 `directWrite`、`compileCheck` 和 `referenceCheck`。Validate 只加载直接写入目标；compile-only 与 reference-only Package 仅通过 Asset Registry 和磁盘元数据检查，但已经加载且标脏的编译目标仍会明确失败。组件修改只编译递归 Blueprint 继承链，普通 Blueprint、召唤器和 ResourceMap 引用保持为 reference-only。预检会报告逐 Package 进度、耗时、角色数量和 Asset Registry Referencer 数量，并在元数据处理范围超过 512 个 Package 前明确失败。
+
+写 Job 只使用一个 transaction，按依赖顺序加载并编译直接目标和必要 Blueprint 依赖，只保存直接目标，重载已保存目标；若验证编译把原本干净的 compile-only 依赖标脏，则从磁盘恢复，最后验证直接资产、子 Blueprint 继承结果和普通引用。Source Control checkout、磁盘估算和文件 Hash 仅覆盖可能保存的 Package。
 
 English: [architecture.md](architecture.md)

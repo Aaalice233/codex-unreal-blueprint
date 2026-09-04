@@ -147,6 +147,31 @@ namespace CodexUnrealBlueprint
             return true;
         }
 
+        TSharedRef<FJsonObject> PreflightTimingToJson(const FPreflightResult& Check)
+        {
+            TSharedRef<FJsonObject> Timing = MakeShared<FJsonObject>();
+            Timing->SetNumberField(TEXT("totalMs"), Check.TotalDurationMs);
+            Timing->SetNumberField(TEXT("impactDiscoveryMs"), Check.ImpactDiscoveryDurationMs);
+            Timing->SetNumberField(TEXT("packageChecksMs"), Check.PackageChecksDurationMs);
+            Timing->SetNumberField(TEXT("typeReferenceChecksMs"), Check.TypeReferenceChecksDurationMs);
+            Timing->SetNumberField(TEXT("sourceControlMs"), Check.SourceControlDurationMs);
+            Timing->SetNumberField(TEXT("diskSpaceCheckMs"), Check.DiskSpaceCheckDurationMs);
+            Timing->SetNumberField(TEXT("compileOrderMs"), Check.CompileOrderDurationMs);
+            return Timing;
+        }
+
+        TSharedRef<FJsonObject> PreflightStatsToJson(const FPreflightResult& Check)
+        {
+            TSharedRef<FJsonObject> Stats = MakeShared<FJsonObject>();
+            Stats->SetNumberField(TEXT("impactPackageCount"), Check.ImpactPackages.Num());
+            Stats->SetNumberField(TEXT("directWritePackageCount"), Check.DirectWritePackageCount);
+            Stats->SetNumberField(TEXT("compileCheckPackageCount"), Check.CompileCheckPackageCount);
+            Stats->SetNumberField(TEXT("referenceCheckPackageCount"), Check.ReferenceCheckPackageCount);
+            Stats->SetNumberField(TEXT("assetRegistryReferencerCount"), Check.AssetRegistryReferencerCount);
+            Stats->SetNumberField(TEXT("loadedPackageCount"), Check.LoadedPackageCount);
+            return Stats;
+        }
+
         FProtocolResponse RunOnGameThread(TFunction<FProtocolResponse()> Work)
         {
             if (IsInGameThread()) return Work();
@@ -540,6 +565,13 @@ namespace CodexUnrealBlueprint
                         return Response;
                     }
                     Preflight.ExpectedStructureHashes = Hashes;
+                    Preflight.IsCancellationRequested = [&Context]() { return Context.IsCancellationRequested(); };
+                    Preflight.ReportProgress = [&Context](const int32 Completed, const int32 Total,
+                        const FString& Message, const FString& PackageName)
+                    {
+                        Context.ReportProgress(Completed, Total, Message, PackageName);
+                    };
+                    Preflight.Heartbeat = [&Context]() { Context.Heartbeat(); };
                     Context.ReportProgress(Operations.Num(), Operations.Num(), TEXT("Validated operation schemas."));
                     const FPreflightResult Check = FWritePreflight::Run(Preflight);
                     Result->SetBoolField(TEXT("valid"), Check.bSucceeded);
@@ -555,6 +587,8 @@ namespace CodexUnrealBlueprint
                         Item->SetBoolField(TEXT("existsOnDisk"), Impact.bExistsOnDisk);
                         Item->SetBoolField(TEXT("wasDirty"), Impact.bWasDirty);
                         Item->SetBoolField(TEXT("readOnly"), Impact.bReadOnly);
+                        Item->SetBoolField(TEXT("loadedByPreflight"), Impact.bLoadedByPreflight);
+                        Item->SetNumberField(TEXT("checkDurationMs"), Impact.CheckDurationMs);
                         TArray<TSharedPtr<FJsonValue>> Roles;
                         if (Impact.bDirectWrite) Roles.Add(MakeShared<FJsonValueString>(TEXT("directWrite")));
                         if (Impact.bCompileCheck) Roles.Add(MakeShared<FJsonValueString>(TEXT("compileCheck")));
@@ -578,7 +612,6 @@ namespace CodexUnrealBlueprint
                         Item->SetStringField(TEXT("actualStructureHash"), Impact.ActualStructureHash);
                         if (Impact.bHasStructureExpectation) Item->SetBoolField(TEXT("structureHashMatched"), Impact.bStructureHashMatched);
                         ImpactPackages.Add(MakeShared<FJsonValueObject>(Item));
-                        Context.ReportProgress(Index + 1, Check.ImpactPackages.Num(), TEXT("Validated affected package."), Impact.PackageName);
                     }
                     Result->SetArrayField(TEXT("impactPackages"), ImpactPackages);
                     TSharedRef<FJsonObject> SourceControl = MakeShared<FJsonObject>();
@@ -608,6 +641,8 @@ namespace CodexUnrealBlueprint
                     TArray<TSharedPtr<FJsonValue>> CompileOrder;
                     for (const FString& PackageName : Check.CompileOrder) CompileOrder.Add(MakeShared<FJsonValueString>(PackageName));
                     Result->SetArrayField(TEXT("compileOrder"), CompileOrder);
+                    Result->SetObjectField(TEXT("timing"), PreflightTimingToJson(Check));
+                    Result->SetObjectField(TEXT("stats"), PreflightStatsToJson(Check));
                     TArray<TSharedPtr<FJsonValue>> Issues;
                     for (const FPreflightIssue& Issue : Check.Issues)
                     {
