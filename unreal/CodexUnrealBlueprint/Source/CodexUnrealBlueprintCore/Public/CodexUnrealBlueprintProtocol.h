@@ -6,7 +6,7 @@
 namespace CodexUnrealBlueprint
 {
     static const TCHAR* const PluginVersion = TEXT("1.0.0");
-    static const TCHAR* const ProtocolVersion = TEXT("1.0.0");
+    static const TCHAR* const ProtocolVersion = TEXT("2.0.0");
 
     enum class EServiceState : uint8
     {

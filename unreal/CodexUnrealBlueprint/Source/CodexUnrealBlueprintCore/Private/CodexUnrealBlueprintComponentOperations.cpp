@@ -4,11 +4,13 @@
 #include "Components/SceneComponent.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/Engine.h"
 #include "Engine/InheritableComponentHandler.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "CodexUnrealBlueprintTypeSystem.h"
+#include "Internationalization/Regex.h"
 #include "UObject/UnrealType.h"
 
 namespace CodexUnrealBlueprint
@@ -139,33 +141,35 @@ namespace CodexUnrealBlueprint
     }
 
     TSharedRef<FJsonObject> FBlueprintComponentOperations::DescribeNode(UBlueprint* QueryBlueprint,
-        UBlueprint* OwnerBlueprint, USCS_Node* Node, const bool bInherited, FBlueprintOperationError& OutError)
+        UBlueprint* OwnerBlueprint, USCS_Node* Node, const bool bInherited, const TSet<FString>& Fields,
+        const TArray<FString>& PropertyPaths, FBlueprintOperationError& OutError)
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-        Json->SetStringField(TEXT("variableName"), Node->GetVariableName().ToString());
-        Json->SetStringField(TEXT("nodeGuid"), Node->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
-        Json->SetStringField(TEXT("ownerBlueprintPath"), OwnerBlueprint->GetPathName());
-        Json->SetBoolField(TEXT("inherited"), bInherited);
-        Json->SetStringField(TEXT("componentClassPath"), Node->ComponentClass ? Node->ComponentClass->GetPathName() : FString());
-        Json->SetStringField(TEXT("templatePath"), Node->ComponentTemplate ? Node->ComponentTemplate->GetPathName() : FString());
+        const auto Wants = [&Fields](const TCHAR* Name) { return Fields.Num() == 0 || Fields.Contains(Name); };
+        if (Wants(TEXT("variableName"))) Json->SetStringField(TEXT("variableName"), Node->GetVariableName().ToString());
+        if (Wants(TEXT("nodeGuid"))) Json->SetStringField(TEXT("nodeGuid"), Node->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        if (Wants(TEXT("ownerBlueprintPath"))) Json->SetStringField(TEXT("ownerBlueprintPath"), OwnerBlueprint->GetPathName());
+        if (Wants(TEXT("inherited"))) Json->SetBoolField(TEXT("inherited"), bInherited);
+        if (Wants(TEXT("componentClassPath"))) Json->SetStringField(TEXT("componentClassPath"), Node->ComponentClass ? Node->ComponentClass->GetPathName() : FString());
+        if (Wants(TEXT("templatePath"))) Json->SetStringField(TEXT("templatePath"), Node->ComponentTemplate ? Node->ComponentTemplate->GetPathName() : FString());
         if (USCS_Node* Parent = OwnerBlueprint->SimpleConstructionScript->FindParentNode(Node))
         {
-            Json->SetStringField(TEXT("parentVariableName"), Parent->GetVariableName().ToString());
-            Json->SetStringField(TEXT("parentNodeGuid"), Parent->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
+            if (Wants(TEXT("parentVariableName"))) Json->SetStringField(TEXT("parentVariableName"), Parent->GetVariableName().ToString());
+            if (Wants(TEXT("parentNodeGuid"))) Json->SetStringField(TEXT("parentNodeGuid"), Parent->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
         }
         else if (!Node->ParentComponentOrVariableName.IsNone())
         {
-            Json->SetStringField(TEXT("parentVariableName"), Node->ParentComponentOrVariableName.ToString());
-            Json->SetStringField(TEXT("parentOwnerClassName"), Node->ParentComponentOwnerClassName.ToString());
+            if (Wants(TEXT("parentVariableName"))) Json->SetStringField(TEXT("parentVariableName"), Node->ParentComponentOrVariableName.ToString());
+            if (Wants(TEXT("parentOwnerClassName"))) Json->SetStringField(TEXT("parentOwnerClassName"), Node->ParentComponentOwnerClassName.ToString());
         }
-        Json->SetBoolField(TEXT("root"), Node->IsRootNode());
+        if (Wants(TEXT("root"))) Json->SetBoolField(TEXT("root"), Node->IsRootNode());
 
         UActorComponent* EffectiveTemplate = Node->ComponentTemplate;
         if (bInherited && QueryBlueprint->GeneratedClass)
         {
             EffectiveTemplate = Node->GetActualComponentTemplate(Cast<UBlueprintGeneratedClass>(QueryBlueprint->GeneratedClass));
         }
-        if (const USceneComponent* Scene = Cast<USceneComponent>(EffectiveTemplate))
+        if (Wants(TEXT("relativeTransform"))) if (const USceneComponent* Scene = Cast<USceneComponent>(EffectiveTemplate))
         {
             const FTransform Transform(Scene->GetRelativeRotation(), Scene->GetRelativeLocation(), Scene->GetRelativeScale3D());
             TSharedRef<FJsonObject> TransformJson = MakeShared<FJsonObject>();
@@ -174,11 +178,29 @@ namespace CodexUnrealBlueprint
             TransformJson->SetStringField(TEXT("scale"), Transform.GetScale3D().ToString());
             Json->SetObjectField(TEXT("relativeTransform"), TransformJson);
         }
+        if (PropertyPaths.Num() > 0 && Wants(TEXT("properties")))
+        {
+            TSharedRef<FJsonObject> Properties = MakeShared<FJsonObject>();
+            for (const FString& PropertyPath : PropertyPaths)
+            {
+                const TSharedPtr<FJsonValue> Value = FBlueprintTypeSystem::GetPropertyValue(
+                    EffectiveTemplate, PropertyPath, OutError, QueryBlueprint->GetPathName());
+                if (!Value.IsValid()) return Json;
+                Properties->SetField(PropertyPath, Value);
+            }
+            Json->SetObjectField(TEXT("properties"), Properties);
+        }
         return Json;
     }
 
     FBlueprintOperationResult FBlueprintComponentOperations::List(UBlueprint* Blueprint, const bool bIncludeInherited,
         const int32 OperationIndex)
+    {
+        return List(Blueprint, bIncludeInherited, TSharedPtr<FJsonObject>(), OperationIndex);
+    }
+
+    FBlueprintOperationResult FBlueprintComponentOperations::List(UBlueprint* Blueprint, const bool bIncludeInherited,
+        const TSharedPtr<FJsonObject>& Query, const int32 OperationIndex)
     {
         if (!IsInGameThread()) return ComponentWrongThread(OperationIndex, TEXT("FBlueprintComponentOperations::List"));
         if (Blueprint == nullptr || Blueprint->SimpleConstructionScript == nullptr)
@@ -188,17 +210,50 @@ namespace CodexUnrealBlueprint
         }
         FBlueprintOperationResult Result = FBlueprintOperationResult::Success({Blueprint->GetPathName()}, false);
         TArray<TSharedPtr<FJsonValue>> Components;
+        TSet<FString> VariableNames;
+        TSet<FString> ClassPaths;
+        TSet<FString> Fields;
+        TArray<FString> PropertyPaths;
+        FString NameRegex;
+        bool bFilterInherited = false;
+        bool bInheritedValue = false;
+        if (Query.IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+            if (Query->TryGetArrayField(TEXT("variableNames"), Values) && Values) for (const TSharedPtr<FJsonValue>& Value : *Values) VariableNames.Add(Value->AsString());
+            if (Query->TryGetArrayField(TEXT("classPaths"), Values) && Values) for (const TSharedPtr<FJsonValue>& Value : *Values) ClassPaths.Add(Value->AsString());
+            if (Query->TryGetArrayField(TEXT("fields"), Values) && Values) for (const TSharedPtr<FJsonValue>& Value : *Values) Fields.Add(Value->AsString());
+            if (Query->TryGetArrayField(TEXT("propertyPaths"), Values) && Values) for (const TSharedPtr<FJsonValue>& Value : *Values) PropertyPaths.Add(Value->AsString());
+            Query->TryGetStringField(TEXT("variableNameRegex"), NameRegex);
+            bFilterInherited = Query->HasField(TEXT("inherited"));
+            Query->TryGetBoolField(TEXT("inherited"), bInheritedValue);
+        }
+        TUniquePtr<FRegexPattern> Pattern;
+        if (!NameRegex.IsEmpty()) Pattern = MakeUnique<FRegexPattern>(NameRegex);
+        int32 Total = 0;
         for (UBlueprint* Current = Blueprint; Current != nullptr; Current = bIncludeInherited ? BlueprintFromClass(Current->ParentClass) : nullptr)
         {
             if (Current->SimpleConstructionScript == nullptr) continue;
             TArray<USCS_Node*> Nodes = Current->SimpleConstructionScript->GetAllNodes();
             for (USCS_Node* Node : Nodes)
             {
+                ++Total;
+                const bool bInherited = Current != Blueprint;
+                const FString VariableName = Node->GetVariableName().ToString();
+                const FString ClassPath = Node->ComponentClass ? Node->ComponentClass->GetPathName() : FString();
+                if (VariableNames.Num() > 0 && !VariableNames.Contains(VariableName)) continue;
+                if (ClassPaths.Num() > 0 && !ClassPaths.Contains(ClassPath)) continue;
+                if (bFilterInherited && bInherited != bInheritedValue) continue;
+                if (Pattern.IsValid()) { FRegexMatcher Matcher(*Pattern, VariableName); if (!Matcher.FindNext()) continue; }
                 FBlueprintOperationError Error;
-                Components.Add(MakeShared<FJsonValueObject>(DescribeNode(Blueprint, Current, Node, Current != Blueprint, Error)));
+                TSharedRef<FJsonObject> Description = DescribeNode(Blueprint, Current, Node, bInherited, Fields, PropertyPaths, Error);
+                if (!Error.Code.IsEmpty()) return ErrorResult(Error);
+                Components.Add(MakeShared<FJsonValueObject>(Description));
             }
         }
         Result.Data->SetArrayField(TEXT("components"), Components);
+        Result.Data->SetNumberField(TEXT("componentsTotal"), Total);
+        Result.Data->SetNumberField(TEXT("componentsMatched"), Components.Num());
         return Result;
     }
 
@@ -249,6 +304,101 @@ namespace CodexUnrealBlueprint
         FBlueprintOperationResult Result = FBlueprintOperationResult::Success({Blueprint->GetPathName()});
         Result.Data->SetStringField(TEXT("variableName"), VariableName.ToString());
         Result.Data->SetStringField(TEXT("nodeGuid"), Node->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        return Result;
+    }
+
+    FBlueprintOperationResult FBlueprintComponentOperations::ValidateCloneRange(UBlueprint* Blueprint,
+        const FComponentReference& Source, const FString& TargetPattern, const int32 StartIndex,
+        const int32 EndIndex, const TSharedPtr<FJsonObject>& PropertyOverrides, const int32 OperationIndex)
+    {
+        if (!IsInGameThread()) return ComponentWrongThread(OperationIndex, TEXT("FBlueprintComponentOperations::ValidateCloneRange"));
+        if (Blueprint == nullptr || Blueprint->SimpleConstructionScript == nullptr
+            || StartIndex > EndIndex || EndIndex - StartIndex + 1 > 200
+            || TargetPattern.Replace(TEXT("{index}"), TEXT("")).Len() != TargetPattern.Len() - 7)
+        {
+            return FBlueprintOperationResult::Failure(TEXT("COMPONENT_CLONE_RANGE_INVALID"),
+                TEXT("targetPattern must contain exactly one {index}; startIndex..endIndex must contain 1..200 components."),
+                Blueprint ? Blueprint->GetPathName() : FString(), OperationIndex,
+                TEXT("FBlueprintComponentOperations::ValidateCloneRange"));
+        }
+
+        FBlueprintOperationError ResolveError;
+        USCS_Node* SourceNode = ResolveLocalNode(Blueprint, Source, ResolveError, OperationIndex);
+        if (SourceNode == nullptr || SourceNode->ComponentTemplate == nullptr) return ErrorResult(ResolveError);
+
+        for (int32 Index = StartIndex; Index <= EndIndex; ++Index)
+        {
+            const FName Name(*TargetPattern.Replace(TEXT("{index}"), *FString::FromInt(Index)));
+            if (Name.IsNone() || Blueprint->SimpleConstructionScript->FindSCSNode(Name) != nullptr)
+            {
+                return FBlueprintOperationResult::Failure(TEXT("COMPONENT_ALREADY_EXISTS"),
+                    FString::Printf(TEXT("Component '%s' already exists or is invalid."), *Name.ToString()),
+                    Blueprint->GetPathName(), OperationIndex, TEXT("USimpleConstructionScript::FindSCSNode"));
+            }
+        }
+        if (PropertyOverrides.IsValid())
+        {
+            UActorComponent* Scratch = DuplicateObject<UActorComponent>(SourceNode->ComponentTemplate, GetTransientPackage());
+            if (!Scratch) return FBlueprintOperationResult::Failure(TEXT("COMPONENT_CLONE_VALIDATE_FAILED"),
+                TEXT("Could not create a transient template for property validation."), Blueprint->GetPathName(),
+                OperationIndex, TEXT("DuplicateObject"));
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Override : PropertyOverrides->Values)
+            {
+                FBlueprintOperationError Error;
+                if (!FBlueprintTypeSystem::SetPropertyValue(Scratch, Override.Key, Override.Value, Error,
+                    Blueprint->GetPathName(), OperationIndex)) return ErrorResult(Error);
+            }
+        }
+        return FBlueprintOperationResult::Success({Blueprint->GetPathName()}, false);
+    }
+
+    FBlueprintOperationResult FBlueprintComponentOperations::CloneRange(UBlueprint* Blueprint,
+        const FComponentReference& Source, const FString& TargetPattern, const int32 StartIndex,
+        const int32 EndIndex, const TSharedPtr<FJsonObject>& PropertyOverrides, const int32 OperationIndex)
+    {
+        FBlueprintOperationResult Valid = ValidateCloneRange(Blueprint, Source, TargetPattern, StartIndex,
+            EndIndex, PropertyOverrides, OperationIndex);
+        if (!Valid.bSuccess) return Valid;
+        FBlueprintOperationError ResolveError;
+        USCS_Node* SourceNode = ResolveLocalNode(Blueprint, Source, ResolveError, OperationIndex);
+        if (!SourceNode) return ErrorResult(ResolveError);
+        TArray<FName> TargetNames;
+        for (int32 Index = StartIndex; Index <= EndIndex; ++Index)
+            TargetNames.Add(FName(*TargetPattern.Replace(TEXT("{index}"), *FString::FromInt(Index))));
+
+        TOptional<FComponentReference> Parent;
+        if (USCS_Node* ParentNode = Blueprint->SimpleConstructionScript->FindParentNode(SourceNode))
+            Parent = FComponentReference{ParentNode->GetVariableName(), ParentNode->VariableGuid, Blueprint->GetPathName(), false};
+        FTransform Transform = FTransform::Identity;
+        if (const USceneComponent* Scene = Cast<USceneComponent>(SourceNode->ComponentTemplate))
+            Transform = FTransform(Scene->GetRelativeRotation(), Scene->GetRelativeLocation(), Scene->GetRelativeScale3D());
+
+        TArray<TSharedPtr<FJsonValue>> Created;
+        for (const FName TargetName : TargetNames)
+        {
+            FBlueprintOperationResult Added = Add(Blueprint, SourceNode->ComponentClass, TargetName, Parent, Transform, OperationIndex);
+            if (!Added.bSuccess) return Added;
+            USCS_Node* TargetNode = Blueprint->SimpleConstructionScript->FindSCSNode(TargetName);
+            if (TargetNode == nullptr || TargetNode->ComponentTemplate == nullptr)
+                return FBlueprintOperationResult::Failure(TEXT("COMPONENT_CREATE_FAILED"), TEXT("Created component template is unavailable."),
+                    Blueprint->GetPathName(), OperationIndex, TEXT("USimpleConstructionScript::FindSCSNode"));
+            UEngine::CopyPropertiesForUnrelatedObjects(SourceNode->ComponentTemplate, TargetNode->ComponentTemplate);
+            if (PropertyOverrides.IsValid())
+            {
+                const FComponentReference Target{TargetName, TargetNode->VariableGuid, Blueprint->GetPathName(), false};
+                for (const TPair<FString, TSharedPtr<FJsonValue>>& Override : PropertyOverrides->Values)
+                {
+                    FBlueprintOperationResult Set = SetProperty(Blueprint, Target, Override.Key, Override.Value, false, OperationIndex);
+                    if (!Set.bSuccess) return Set;
+                }
+            }
+            TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
+            Item->SetStringField(TEXT("variableName"), TargetName.ToString());
+            Item->SetStringField(TEXT("nodeGuid"), TargetNode->VariableGuid.ToString(EGuidFormats::DigitsWithHyphens));
+            Created.Add(MakeShared<FJsonValueObject>(Item));
+        }
+        FBlueprintOperationResult Result = FBlueprintOperationResult::Success({Blueprint->GetPathName()});
+        Result.Data->SetArrayField(TEXT("components"), Created);
         return Result;
     }
 

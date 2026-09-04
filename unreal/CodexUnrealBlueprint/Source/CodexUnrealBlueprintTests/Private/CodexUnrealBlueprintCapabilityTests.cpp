@@ -17,6 +17,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/Level.h"
 #include "Engine/LevelScriptBlueprint.h"
+#include "Engine/SimpleConstructionScript.h"
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/UserDefinedStruct.h"
 #include "Materials/Material.h"
@@ -34,6 +35,7 @@
 #include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintGraphOperations.h"
 #include "CodexUnrealBlueprintJobs.h"
+#include "CodexUnrealBlueprintInspection.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
 #include "CodexUnrealBlueprintProtocol.h"
 #include "CodexUnrealBlueprintService.h"
@@ -314,10 +316,38 @@ bool FCodexTypesDefaultsAndComponentsUnitTest::RunTest(const FString& Parameters
         Blueprint, UStaticMeshComponent::StaticClass(), TEXT("FixtureMesh"), ComponentRef(TEXT("FixtureRoot")), FTransform::Identity);
     TestTrue(TEXT("child component added"), Mesh.bSuccess);
     TestTrue(TEXT("component list includes local hierarchy"), FBlueprintComponentOperations::List(Blueprint, true).bSuccess);
+    TSharedRef<FJsonObject> ComponentPage = MakeShared<FJsonObject>(); FProtocolError InspectError;
+    TestTrue(TEXT("component facet inspection succeeds"), FBlueprintInspection::Inspect(Blueprint->GetPathName(),
+        {TEXT("components")}, 0, 1, ComponentPage, InspectError));
+    TSharedRef<FJsonObject> AssetPage = MakeShared<FJsonObject>();
+    TestTrue(TEXT("asset facet inspection succeeds"), FBlueprintInspection::Inspect(Blueprint->GetPathName(),
+        {TEXT("asset")}, 0, 500, AssetPage, InspectError));
+    TestEqual(TEXT("global structure hash ignores facet and pagination"), ComponentPage->GetStringField(TEXT("structureHash")),
+        AssetPage->GetStringField(TEXT("structureHash")));
+    const FString BeforeTransformHash = ComponentPage->GetStringField(TEXT("structureHash"));
     TestTrue(TEXT("component transform set"), FBlueprintComponentOperations::SetTransform(
         Blueprint, ComponentRef(TEXT("FixtureMesh")), FTransform(FRotator(0, 45, 0), FVector(10, 0, 0))).bSuccess);
+    FString AfterTransformHash;
+    TestTrue(TEXT("structure hash recomputes after a structural transform change"),
+        FBlueprintInspection::ComputeStructureHash(Blueprint->GetPathName(), AfterTransformHash, InspectError));
+    TestNotEqual(TEXT("structure hash changes with component transform"), BeforeTransformHash, AfterTransformHash);
     TestTrue(TEXT("component property set"), FBlueprintComponentOperations::SetProperty(
         Blueprint, ComponentRef(TEXT("FixtureMesh")), TEXT("bVisible"), MakeShared<FJsonValueBoolean>(false), false).bSuccess);
+    TSharedPtr<FJsonObject> Overrides = MakeShared<FJsonObject>();
+    Overrides->SetBoolField(TEXT("bVisible"), true);
+    TestTrue(TEXT("component range cloned atomically"), FBlueprintComponentOperations::CloneRange(
+        Blueprint, ComponentRef(TEXT("FixtureMesh")), TEXT("FixtureMesh{index}"), 11, 13, Overrides).bSuccess);
+    TSharedPtr<FJsonObject> Query = MakeShared<FJsonObject>();
+    Query->SetStringField(TEXT("variableNameRegex"), TEXT("^FixtureMesh1[1-3]$"));
+    Query->SetArrayField(TEXT("propertyPaths"), {MakeShared<FJsonValueString>(TEXT("bVisible"))});
+    FBlueprintOperationResult Clones = FBlueprintComponentOperations::List(Blueprint, true, Query);
+    TestTrue(TEXT("component range query succeeds"), Clones.bSuccess);
+    if (Clones.bSuccess) TestEqual(TEXT("component range query returns all clones"),
+        static_cast<int32>(Clones.Data->GetNumberField(TEXT("componentsMatched"))), 3);
+    TestFalse(TEXT("range conflict is rejected before adding any component"), FBlueprintComponentOperations::CloneRange(
+        Blueprint, ComponentRef(TEXT("FixtureMesh")), TEXT("FixtureMesh{index}"), 13, 14, Overrides).bSuccess);
+    TestNull(TEXT("range conflict did not partially add the next component"),
+        Blueprint->SimpleConstructionScript->FindSCSNode(TEXT("FixtureMesh14")));
     TestTrue(TEXT("component renamed"), FBlueprintComponentOperations::Rename(
         Blueprint, ComponentRef(TEXT("FixtureMesh")), TEXT("VisualMesh")).bSuccess);
     TestTrue(TEXT("component made root"), FBlueprintComponentOperations::SetRoot(Blueprint, ComponentRef(TEXT("FixtureRoot"))).bSuccess);
@@ -622,15 +652,25 @@ bool FCodexPublicInspectionLevelAndValidationTest::RunTest(const FString& Parame
     Validate.Id = TEXT("validate-preflight");
     Validate.Method = TEXT("blueprint.validate");
     Validate.Params = MakeShared<FJsonObject>();
+    Validate.Params->SetStringField(TEXT("requestId"), Fixture.GetRunId() + TEXT("_validate"));
     Validate.Params->SetArrayField(TEXT("operations"), {MakeShared<FJsonValueObject>(InvalidReference)});
     const FProtocolResponse ValidateResponse = FCoreService::Get().Dispatch(Validate);
-    if (!TestTrue(TEXT("validate returns the full preflight result"), ValidateResponse.IsSuccess())) return false;
-    TestFalse(TEXT("missing type reference fails validate"), ValidateResponse.Result->GetBoolField(TEXT("valid")));
-    TestTrue(TEXT("validate exposes impact analysis"), ValidateResponse.Result->HasField(TEXT("impactPackages")));
-    TestTrue(TEXT("validate exposes source-control inspection"), ValidateResponse.Result->HasField(TEXT("sourceControl")));
+    if (!TestTrue(TEXT("validate immediately returns a job"), ValidateResponse.IsSuccess())) return false;
+    FString ValidateJobId; if (!TestTrue(TEXT("validate job has identity"), ValidateResponse.Result->TryGetStringField(TEXT("jobId"), ValidateJobId))) return false;
+    FJobSnapshot ValidateSnapshot; const double ValidateDeadline = FPlatformTime::Seconds() + 10.0;
+    while (FPlatformTime::Seconds() < ValidateDeadline)
+    {
+        FJobManager::Get().Tick(FPlatformTime::Seconds()); FEditorSafeDispatcher::Get().Tick();
+        if (FJobManager::Get().Get(ValidateJobId, ValidateSnapshot) && ValidateSnapshot.bTerminal) break;
+        FPlatformProcess::Sleep(0.005f);
+    }
+    if (!TestTrue(TEXT("validate job returns the full preflight result"), ValidateSnapshot.bTerminal && ValidateSnapshot.Result.IsValid())) return false;
+    TestFalse(TEXT("missing type reference fails validate"), ValidateSnapshot.Result->GetBoolField(TEXT("valid")));
+    TestTrue(TEXT("validate exposes impact analysis"), ValidateSnapshot.Result->HasField(TEXT("impactPackages")));
+    TestTrue(TEXT("validate exposes source-control inspection"), ValidateSnapshot.Result->HasField(TEXT("sourceControl")));
     const TArray<TSharedPtr<FJsonValue>>* Issues = nullptr;
     bool bFoundMissingReference = false;
-    if (ValidateResponse.Result->TryGetArrayField(TEXT("issues"), Issues) && Issues)
+    if (ValidateSnapshot.Result->TryGetArrayField(TEXT("issues"), Issues) && Issues)
     {
         for (const TSharedPtr<FJsonValue>& Value : *Issues)
         {

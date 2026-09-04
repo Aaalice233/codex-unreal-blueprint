@@ -2,7 +2,7 @@ import { ERROR_CODES, UnrealBlueprintError, type ErrorContext } from "./errors.j
 import { assertJsonValue, isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 
 export const JSON_RPC_VERSION = "2.0" as const;
-export const CLIENT_PROTOCOL_VERSION = "1.0.0";
+export const CLIENT_PROTOCOL_VERSION = "2.0.0";
 export type RpcId = string | number;
 
 export interface ProtocolVersion {

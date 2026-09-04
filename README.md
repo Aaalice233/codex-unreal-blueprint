@@ -119,6 +119,8 @@ pwsh ./scripts/setup.ps1 -CodexOnly
 - **通用资产**：`unreal_asset_inspect`、`unreal_asset_compare`、`unreal_asset_referencers`
 - **Blueprint 工作流**：`blueprint_capabilities`、`blueprint_inspect`、`blueprint_validate`、`blueprint_apply`、`blueprint_job`、`blueprint_verify`
 
+协议 `2.0.0` 将 validate、apply、verify 统一为 Job：携带 `requestId` 提交一次，再通过 `blueprint_job` 查询或等待。批量组件、精确属性检查和结构断言继续复用同一套十二工具，不增加同义工具。
+
 ## 📚 文档
 
 - [安装与本地开发](Docs/setup.zh-CN.md)

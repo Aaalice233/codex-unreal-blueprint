@@ -1,4 +1,5 @@
 #include "CodexUnrealBlueprintPreflight.h"
+#include "CodexUnrealBlueprintInspection.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -182,6 +183,41 @@ namespace CodexUnrealBlueprint
             return Result;
         }
 
+        TMap<FString, FString> ExpectedByPackage;
+        TMap<FString, FString> ActualByPackage;
+        TMap<FString, FString> AssetByPackage;
+        for (const TPair<FString, FString>& Pair : Request.ExpectedStructureHashes)
+        {
+            const FString PackageName = FPackageName::ObjectPathToPackageName(Pair.Key);
+            if (!TargetPackages.Contains(PackageName))
+            {
+                AddIssue(Result, TEXT("preflight.structureHashTargetNotFound"),
+                    FString::Printf(TEXT("expectedStructureHashes key is not a direct operation target: %s."), *Pair.Key),
+                    PackageName, Pair.Key);
+                continue;
+            }
+            if (ExpectedByPackage.Contains(PackageName))
+            {
+                AddIssue(Result, TEXT("preflight.structureHashAmbiguousPackage"),
+                    TEXT("Only one expected Blueprint asset is allowed per package."), PackageName, Pair.Key);
+                continue;
+            }
+            FString Actual;
+            FProtocolError HashError;
+            if (!FBlueprintInspection::ComputeStructureHash(Pair.Key, Actual, HashError))
+            {
+                AddIssue(Result, TEXT("preflight.structureHashRead"), HashError.Message, PackageName, Pair.Key);
+                continue;
+            }
+            ExpectedByPackage.Add(PackageName, Pair.Value);
+            ActualByPackage.Add(PackageName, Actual);
+            AssetByPackage.Add(PackageName, Pair.Key);
+            if (!Actual.Equals(Pair.Value, ESearchCase::IgnoreCase))
+                AddIssue(Result, TEXT("preflight.structureHashMismatch"),
+                    FString::Printf(TEXT("structureHash does not match %s (expected %s, actual %s)."), *Pair.Key, *Pair.Value, *Actual),
+                    PackageName, Pair.Key);
+        }
+
         IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
         TArray<FString> ExistingFiles;
         TArray<FString> NewFiles;
@@ -197,6 +233,19 @@ namespace CodexUnrealBlueprint
 
             FImpactPackage Impact;
             Impact.PackageName = PackageName;
+            Impact.bDirectWrite = TargetPackages.Contains(PackageName);
+            Impact.bCompileCheck = !Impact.bDirectWrite && Request.CompilePackageNames.Contains(PackageName);
+            Impact.bReferenceCheck = !Impact.bDirectWrite && !Impact.bCompileCheck;
+            Impact.OperationIndices = Request.OperationIndicesByPackage.FindRef(PackageName);
+            Impact.ReferencedFrom = Request.ReferencedFromByPackage.FindRef(PackageName);
+            if (const FString* AssetPath = AssetByPackage.Find(PackageName)) Impact.AssetPath = *AssetPath;
+            if (const FString* Expected = ExpectedByPackage.Find(PackageName))
+            {
+                Impact.bHasStructureExpectation = true;
+                Impact.ExpectedHash = *Expected;
+                Impact.ActualStructureHash = ActualByPackage.FindRef(PackageName);
+                Impact.bStructureHashMatched = Impact.ActualStructureHash.Equals(Impact.ExpectedHash, ESearchCase::IgnoreCase);
+            }
             Impact.bExistsOnDisk = FPackageName::DoesPackageExist(PackageName, nullptr, &Impact.Filename);
             if (!ResolvePackageFilename(PackageName, Impact.bExistsOnDisk, Impact.Filename))
             {
@@ -243,36 +292,39 @@ namespace CodexUnrealBlueprint
                     FString::Printf(TEXT("Affected package has unsaved user changes: %s."), *PackageName), PackageName);
             }
             Impact.bReadOnly = Impact.bExistsOnDisk && PlatformFile.IsReadOnly(*Impact.Filename);
-            if (Impact.bExistsOnDisk)
+            if (Impact.bDirectWrite && Impact.bExistsOnDisk)
             {
                 const int64 Size = PlatformFile.FileSize(*Impact.Filename);
                 Impact.EstimatedWriteBytes = Size > 0 ? static_cast<uint64>(Size) : 0;
                 ExistingFiles.Add(Impact.Filename);
             }
-            else
+            else if (Impact.bDirectWrite)
             {
                 const uint64* Estimate = Request.EstimatedNewPackageBytes.Find(PackageName);
                 Impact.EstimatedWriteBytes = Estimate != nullptr ? *Estimate : 64ull * 1024ull * 1024ull;
                 NewFiles.Add(Impact.Filename);
             }
-            WriteBytes += Impact.EstimatedWriteBytes;
+            if (Impact.bDirectWrite) WriteBytes += Impact.EstimatedWriteBytes;
 
-            FString HashError;
-            const bool bHashRead = Request.StateHashResolver
-                ? Request.StateHashResolver(PackageName, Impact.BeforeHash, HashError)
-                : ComputePackageStateHash(PackageName, Impact.BeforeHash, HashError);
-            if (!bHashRead)
+            if (Impact.bDirectWrite)
             {
-                AddIssue(Result, TEXT("preflight.stateHashRead"), HashError, PackageName);
-            }
-            if (const FString* Expected = Request.ExpectedStateHashes.Find(PackageName))
-            {
-                Impact.ExpectedHash = *Expected;
-                if (!Impact.BeforeHash.Equals(Impact.ExpectedHash, ESearchCase::IgnoreCase))
+                FString HashError;
+                const bool bHashRead = Request.StateHashResolver
+                    ? Request.StateHashResolver(PackageName, Impact.BeforeHash, HashError)
+                    : ComputePackageStateHash(PackageName, Impact.BeforeHash, HashError);
+                if (!bHashRead)
                 {
-                    AddIssue(Result, TEXT("preflight.stateHashMismatch"),
-                        FString::Printf(TEXT("expectedStateHash does not match %s (expected %s, actual %s)."),
-                            *PackageName, **Expected, *Impact.BeforeHash), PackageName);
+                    AddIssue(Result, TEXT("preflight.stateHashRead"), HashError, PackageName);
+                }
+                if (const FString* Expected = Request.ExpectedStateHashes.Find(PackageName))
+                {
+                    Impact.ExpectedHash = *Expected;
+                    if (!Impact.BeforeHash.Equals(Impact.ExpectedHash, ESearchCase::IgnoreCase))
+                    {
+                        AddIssue(Result, TEXT("preflight.stateHashMismatch"),
+                            FString::Printf(TEXT("expectedStateHash does not match %s (expected %s, actual %s)."),
+                                *PackageName, **Expected, *Impact.BeforeHash), PackageName);
+                    }
                 }
             }
             Result.ImpactPackages.Add(MoveTemp(Impact));

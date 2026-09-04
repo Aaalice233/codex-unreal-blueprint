@@ -105,6 +105,13 @@ namespace CodexUnrealBlueprint
             Result.Files.Add(MoveTemp(File));
         }
 
+        FString Root;
+        const FString WorkingCopyStart = AllFiles.Num() > 0 ? FPaths::GetPath(AllFiles[0]) : FPaths::ProjectDir();
+        const EWorkingCopyKind Kind = DetectWorkingCopy(WorkingCopyStart, Root);
+        Result.WorkingCopyKind = Kind == EWorkingCopyKind::Git ? TEXT("git")
+            : Kind == EWorkingCopyKind::Svn ? TEXT("svn") : TEXT("none");
+        Result.WorkingCopyRoot = Root;
+
         Result.bSucceeded = true;
         return Result;
     }

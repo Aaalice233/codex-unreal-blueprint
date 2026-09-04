@@ -16,6 +16,9 @@ Migrated the product to a Codex plugin with a bundled stdio MCP server and fully
 - Fixed graceful TCP disconnect handling that could leave one busy-loop UE thread per closed connection; added connection, authentication, idle, and send limits plus repeated-disconnect regression coverage. / 修复 TCP 正常断开后每个连接可能遗留一个 UE 空转线程的问题，并补充连接数、认证、空闲和发送期限以及重复断连回归测试。
 - Removed discovery-only TCP probes, propagated cancellation through discovery and authentication, and made request timeout or cancellation close the transport deterministically. / 删除仅用于发现会话的 TCP 探测，将取消信号贯穿会话发现与认证，并在请求超时或取消时确定性关闭传输连接。
 - Installed the exact validated UE binaries and added per-install Codex cachebusters so updates do not reuse or overwrite an active plugin cache. / 安装实际验证过的 UE DLL，并为每次 Codex 安装生成 cachebuster，避免复用或原地覆盖正在使用的插件缓存。
+- Upgraded the Editor/MCP protocol to `2.0.0`; validate and verify now return idempotent in-memory jobs with deterministic package/asset progress, while write jobs remain journal-durable. / Editor/MCP 协议升级到 `2.0.0`；validate 和 verify 改为幂等内存 Job 并返回确定的 Package/资产进度，写 Job 继续由 Journal 持久化。
+- Added global facet-independent Blueprint structure hashes, exact expected-hash checks, package roles that save direct targets only, filtered component inspection, atomic component ranges, structured transforms, and component/property verification assertions. / 新增与 facet 无关的全局 Blueprint 结构 Hash、精确预期 Hash 校验、仅保存直接目标的 Package 角色、组件过滤检查、原子组件范围、结构化 Transform 以及组件/属性断言。
+- Split Editor source-control provider state from working-copy detection and strengthened session discovery with executable identity and atomic five-second heartbeats. / 将 Editor Source Control Provider 状态与工作副本检测分离，并通过可执行文件身份及每 5 秒原子心跳强化 Session 发现。
 
 ## [1.0.0]
 

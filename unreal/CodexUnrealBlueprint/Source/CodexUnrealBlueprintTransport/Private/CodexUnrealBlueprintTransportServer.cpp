@@ -693,6 +693,8 @@ namespace CodexUnrealBlueprint
                 return FailStart(TEXT("The UE4.27 TCP listener thread failed to start."), OutError);
             }
 
+            SessionConfig = Config;
+            StartedAt = FDateTime::UtcNow().ToIso8601();
             if (Config.bWriteSessionDescriptor && !WriteSessionDescriptor(Config, OutError))
             {
                 Stop();
@@ -754,6 +756,8 @@ namespace CodexUnrealBlueprint
                 IFileManager::Get().Delete(*SessionDescriptorPath, false, true, true);
                 SessionDescriptorPath.Reset();
             }
+            StartedAt.Reset();
+            HeartbeatElapsedSeconds = 0.0f;
             {
                 FScopeLock Lock(&StateMutex);
                 AuthenticatedConnections = 0;
@@ -803,11 +807,21 @@ namespace CodexUnrealBlueprint
         bool TickCleanup(float DeltaTime)
         {
             check(IsInGameThread());
-            FScopeLock Lock(&ConnectionsMutex);
-            Connections.RemoveAll([](const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe>& Connection)
             {
-                return !Connection.IsValid() || !Connection->IsRunning();
-            });
+                FScopeLock Lock(&ConnectionsMutex);
+                Connections.RemoveAll([](const TSharedPtr<FTransportConnection, ESPMode::ThreadSafe>& Connection)
+                {
+                    return !Connection.IsValid() || !Connection->IsRunning();
+                });
+            }
+            HeartbeatElapsedSeconds += DeltaTime;
+            if (SessionConfig.bWriteSessionDescriptor && HeartbeatElapsedSeconds >= 5.0f)
+            {
+                HeartbeatElapsedSeconds = 0.0f;
+                FProtocolError Error;
+                if (!WriteSessionDescriptor(SessionConfig, Error))
+                    UE_LOG(LogCodexUnrealBlueprintServer, Error, TEXT("Failed to refresh session heartbeat: %s"), *Error.Message);
+            }
             return GetState() != EServiceState::Stopped;
         }
 
@@ -926,7 +940,12 @@ namespace CodexUnrealBlueprint
             Descriptor->SetStringField(TEXT("pluginVersion"), PluginVersion);
             Descriptor->SetStringField(TEXT("protocolVersion"), ProtocolVersion);
             Descriptor->SetObjectField(TEXT("capabilities"), Capabilities);
-            Descriptor->SetStringField(TEXT("startedAt"), FDateTime::UtcNow().ToIso8601());
+            Descriptor->SetStringField(TEXT("startedAt"), StartedAt);
+            FString ExecutablePath = FPlatformProcess::ExecutablePath();
+            FPaths::NormalizeFilename(ExecutablePath);
+            Descriptor->SetStringField(TEXT("executablePath"), ExecutablePath);
+            Descriptor->SetStringField(TEXT("executableName"), FPaths::GetCleanFilename(ExecutablePath));
+            Descriptor->SetStringField(TEXT("lastHeartbeatAt"), FDateTime::UtcNow().ToIso8601());
 
             SessionDescriptorPath = FPaths::Combine(SessionDirectory, EditorSessionId + TEXT(".json"));
             const FString TemporaryPath = SessionDescriptorPath + TEXT(".tmp");
@@ -982,6 +1001,9 @@ namespace CodexUnrealBlueprint
         FString EditorSessionId;
         FString AuthToken;
         FString SessionDescriptorPath;
+        FString StartedAt;
+        FTransportServerConfig SessionConfig;
+        float HeartbeatElapsedSeconds = 0.0f;
         FSocket* ListenSocket = nullptr;
         TUniquePtr<FTcpListener> Listener;
         FDelegateHandle CleanupTickerHandle;

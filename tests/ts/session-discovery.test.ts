@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalizeUproject,
   defaultSessionsDirectory,
+  discoverSessionState,
   discoverSessions,
   selectSession
 } from "../../src/client/session-discovery.js";
@@ -31,9 +32,12 @@ async function writeSession(directory: string, id: string, overrides: Record<str
     port: id === "one" ? 32101 : 32102,
     authToken: `token-${id}`,
     pluginVersion: "1.0.0",
-    protocolVersion: "1.0.0",
+    protocolVersion: "2.0.0",
     capabilities: { blueprint: true },
     startedAt: id === "one" ? "2026-01-01T00:00:00.000Z" : "2026-01-02T00:00:00.000Z",
+    executablePath: "E:/UE_4.27/Engine/Binaries/Win64/UE4Editor.exe",
+    executableName: "UE4Editor.exe",
+    lastHeartbeatAt: "2026-01-02T00:00:00.000Z",
     ...overrides
   }), "utf8");
 }
@@ -44,7 +48,7 @@ describe("Editor session discovery", () => {
     await writeSession(directory, "one");
     const sessions = await discoverSessions(
       { uproject: "e:\\master\\LuaSocial.uproject" },
-      { sessionsDirectory: directory, isProcessAlive: () => true }
+      { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") }
     );
     expect(sessions.map((session) => session.editorSessionId)).toEqual(["one"]);
   });
@@ -52,7 +56,7 @@ describe("Editor session discovery", () => {
   it("drops stale PID descriptors", async () => {
     const directory = await fixture();
     await writeSession(directory, "one");
-    expect(await discoverSessions({}, { sessionsDirectory: directory, isProcessAlive: () => false })).toEqual([]);
+    expect(await discoverSessions({}, { sessionsDirectory: directory, isProcessAlive: () => false, now: () => Date.parse("2026-01-02T00:00:01.000Z") })).toEqual([]);
   });
 
   it("honors cancellation without opening a transport connection", async () => {
@@ -62,7 +66,7 @@ describe("Editor session discovery", () => {
     controller.abort();
     await expect(discoverSessions(
       {},
-      { sessionsDirectory: directory, isProcessAlive: () => true },
+      { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") },
       controller.signal
     )).rejects.toMatchObject({ code: "REQUEST_ABORTED" } satisfies Partial<UnrealBlueprintError>);
   });
@@ -74,6 +78,7 @@ describe("Editor session discovery", () => {
     await expect(discoverSessions({}, {
       sessionsDirectory: directory,
       isProcessAlive: () => true,
+      now: () => Date.parse("2026-01-02T00:00:01.000Z"),
       readSessionFile: async (path) => {
         const descriptor = await readFile(path, "utf8");
         controller.abort();
@@ -88,14 +93,14 @@ describe("Editor session discovery", () => {
     await writeSession(directory, "two");
     await expect(selectSession(
       { uproject: "E:/Master/LuaSocial.uproject" },
-      { sessionsDirectory: directory, isProcessAlive: () => true }
+      { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") }
     )).rejects.toMatchObject({ code: "SESSION_AMBIGUOUS" } satisfies Partial<UnrealBlueprintError>);
   });
 
   it("reports malformed descriptors instead of treating them as a healthy session", async () => {
     const directory = await fixture();
     await writeFile(join(directory, "broken.json"), "{not-json", "utf8");
-    await expect(discoverSessions({}, { sessionsDirectory: directory, isProcessAlive: () => true }))
+    await expect(discoverSessions({}, { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") }))
       .rejects.toMatchObject({ code: "SESSION_INVALID" } satisfies Partial<UnrealBlueprintError>);
   });
 
@@ -103,7 +108,7 @@ describe("Editor session discovery", () => {
     const directory = await fixture();
     await writeFile(join(directory, "broken.json"), "{not-json", "utf8");
     await writeSession(directory, "one");
-    await expect(selectSession({}, { sessionsDirectory: directory, isProcessAlive: () => true }))
+    await expect(selectSession({}, { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") }))
       .resolves.toMatchObject({ editorSessionId: "one" });
   });
 
@@ -112,8 +117,24 @@ describe("Editor session discovery", () => {
     await writeSession(directory, "one");
     await expect(selectSession(
       { editorSessionId: "one" },
-      { sessionsDirectory: directory, isProcessAlive: () => false }
+      { sessionsDirectory: directory, isProcessAlive: () => false, now: () => Date.parse("2026-01-02T00:00:01.000Z") }
     )).rejects.toMatchObject({ code: "SESSION_STALE" } satisfies Partial<UnrealBlueprintError>);
+  });
+
+  it("returns heartbeat and executable failures as stale diagnostics", async () => {
+    const directory = await fixture();
+    await writeSession(directory, "one", { lastHeartbeatAt: "2026-01-01T23:57:00.000Z" });
+    await writeSession(directory, "two", { executableName: "notepad.exe" });
+    const state = await discoverSessionState({}, {
+      sessionsDirectory: directory,
+      isProcessAlive: () => true,
+      now: () => Date.parse("2026-01-02T00:00:01.000Z")
+    });
+    expect(state.sessions).toEqual([]);
+    expect(state.staleSessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ editorSessionId: "one", reason: "heartbeat-expired" }),
+      expect.objectContaining({ editorSessionId: "two", reason: "unexpected-executable" })
+    ]));
   });
 
   it("reports a permission-unreadable descriptor without a fake fallback", async () => {
@@ -123,6 +144,7 @@ describe("Editor session discovery", () => {
     await expect(discoverSessions({}, {
       sessionsDirectory: directory,
       isProcessAlive: () => true,
+      now: () => Date.parse("2026-01-02T00:00:01.000Z"),
       readSessionFile: async () => { throw denied; }
     })).rejects.toMatchObject({ code: "SESSION_INVALID" } satisfies Partial<UnrealBlueprintError>);
   });
@@ -133,7 +155,7 @@ describe("Editor session discovery", () => {
     await writeSession(directory, "two", { uproject: "E:/Other/LuaSocial.uproject" });
     await expect(selectSession(
       { uproject: "E:/Master/Folder/../LuaSocial.uproject" },
-      { sessionsDirectory: directory, isProcessAlive: () => true }
+      { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") }
     )).resolves.toMatchObject({ editorSessionId: "one" });
   });
 

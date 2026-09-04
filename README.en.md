@@ -117,6 +117,8 @@ No Editor restart is needed in this case; create a new Codex task to load the up
 - **General assets:** `unreal_asset_inspect`, `unreal_asset_compare`, `unreal_asset_referencers`
 - **Blueprint workflow:** `blueprint_capabilities`, `blueprint_inspect`, `blueprint_validate`, `blueprint_apply`, `blueprint_job`, `blueprint_verify`
 
+Protocol `2.0.0` makes validate, apply, and verify job-based: submit once with `requestId`, then query or wait through `blueprint_job`. Component ranges, filtered property inspection, and structural assertions remain operations/facets of the same twelve-tool workflow.
+
 ## 📚 Documentation
 
 - [Setup and local development](Docs/setup.md)

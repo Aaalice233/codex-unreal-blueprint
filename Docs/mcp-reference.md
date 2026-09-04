@@ -12,10 +12,10 @@ Every tool accepts optional `session: { editorSessionId?, uproject? }`. An exact
 | `unreal_asset_referencers` | Find Asset Registry or serialized binary referencers | read-only |
 | `blueprint_capabilities` | Read schemas and examples from the Operation Registry | read-only |
 | `blueprint_inspect` | Page facets, stable IDs, compile state, and structure hashes | read-only |
-| `blueprint_validate` | Preflight one-shot operations in memory | read-only |
+| `blueprint_validate` | Start an idempotent in-memory preflight job (`requestId` required) | read-only |
 | `blueprint_apply` | Start an automatic transactional write with a unique `requestId` | destructive |
 | `blueprint_job` | Query, wait for, or cancel by `jobId`/`requestId` | non-read-only |
-| `blueprint_verify` | Compile, reload, and assert disk structure | read-only |
+| `blueprint_verify` | Start an idempotent compile/reload/assert job (`requestId` required) | read-only |
 
 ## Layered asset inspection
 
@@ -31,6 +31,12 @@ Offline inspection uses the parser bundled under `offline/`; it reconstructs Blu
 
 `blueprint_job wait` accepts `timeoutMs` from 0 through 600000; the MCP host timeout is 620 seconds. Successful results appear in both text and `structuredContent.result`. Failures use `structuredContent.error` with stable codes and available asset, operation, callsite, compiler, and partial-failure details.
 
-When exactly one Editor matches, `unreal_status` returns `connected: true` and exact `session` metadata while keeping UE status fields at the result root. Discovery reads live-process descriptors only; the authenticated RPC connection verifies availability without opening a separate port-probe connection.
+Protocol `2.0.0` returns a `JobSnapshot` from `blueprint_validate`, `blueprint_apply`, and `blueprint_verify`. Snapshots include `method` and `durability` (`memory` for read jobs, `journal` for writes). Submitting the same `requestId`, method, and canonical parameters returns the original job; a different request under the same id fails with `REQUEST_CONFLICT`.
+
+`blueprint_inspect` returns a facet/filter/page-independent `structureHash` with `structureHashScope: "blueprint-structure-v1"`, plus hashes for each complete requested facet. `componentQuery` filters before pagination by names, regex, classes, or inheritance and can project fields and exact template property paths. Results report both total and matched component counts.
+
+The Operation Registry supports `component.add.initialProperties`, atomic `component.cloneRange` (one `{index}`, at most 200 components), and text or structured JSON transforms. Verify expectations can assert package dirtiness, individual or numbered component ranges, class/inheritance/parent/transform/properties, and filtered component counts.
+
+When exactly one Editor matches, `unreal_status` returns `connected: true` and exact `session` metadata while keeping UE status fields at the result root. Session metadata includes executable identity and heartbeat. Stale descriptors are excluded from selection and returned as diagnostics. Source-control output separates the Editor provider from detected `.git`/`.svn` working-copy identity; a disabled provider reports per-file state as `unknown`.
 
 中文：[mcp-reference.zh-CN.md](mcp-reference.zh-CN.md)

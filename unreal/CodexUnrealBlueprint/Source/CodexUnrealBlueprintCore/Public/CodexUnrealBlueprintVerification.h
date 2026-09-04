@@ -11,6 +11,7 @@ namespace CodexUnrealBlueprint
     public:
         static bool Verify(const TArray<FString>& AssetPaths,
             const TArray<TSharedPtr<FJsonValue>>& Expectations, bool bCompile, bool bReload,
-            TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError);
+            TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError,
+            const TFunction<void(const FString& Stage, int32 Completed, int32 Total, const FString& AssetPath)>& Progress = nullptr);
     };
 }

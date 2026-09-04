@@ -4,6 +4,7 @@
 
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Interfaces/IPv4/IPv4Address.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -133,6 +134,10 @@ namespace CodexUnrealBlueprint
             TestEqual(TEXT("The descriptor reports the protocol"), Descriptor->GetStringField(TEXT("protocolVersion")), FString(ProtocolVersion));
             TestTrue(TEXT("The descriptor includes a non-trivial authentication token"), Descriptor->GetStringField(TEXT("authToken")).Len() >= 64);
             TestTrue(TEXT("The descriptor includes capabilities"), Descriptor->HasTypedField<EJson::Object>(TEXT("capabilities")));
+            TestEqual(TEXT("The descriptor identifies the current Editor executable"), Descriptor->GetStringField(TEXT("executableName")),
+                FPaths::GetCleanFilename(FPlatformProcess::ExecutablePath()));
+            TestFalse(TEXT("The descriptor includes the executable path"), Descriptor->GetStringField(TEXT("executablePath")).IsEmpty());
+            TestFalse(TEXT("The descriptor includes a heartbeat timestamp"), Descriptor->GetStringField(TEXT("lastHeartbeatAt")).IsEmpty());
         }
 
         Server.Stop();

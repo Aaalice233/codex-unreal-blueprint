@@ -14,7 +14,7 @@ Codex task
                   └─ 随包 UAssetAPI 解析器
 ```
 
-MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序列化；具体 operation Schema 与执行逻辑只存在于 UE Operation Registry。Editor 在随机 `127.0.0.1` 端口发布仅当前用户可读的会话描述和每次启动生成的 token。客户端按规范化 `.uproject` 或 `editorSessionId` 精确选择。
+MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序列化；具体 operation Schema 与执行逻辑只存在于 UE Operation Registry。协议 `2.0.0` 将 `blueprint_validate` 和 `blueprint_verify` 定义为异步只读 Job。Editor 在随机 `127.0.0.1` 端口发布仅当前用户可读的会话描述、每次启动生成的 token、可执行文件身份和每 5 秒原子刷新的心跳。客户端排除进程退出、非 `UE4Editor.exe` 或心跳过期的描述，再按规范化 `.uproject` 或 `editorSessionId` 精确选择。
 
 资产检查明确分为三层：
 
@@ -24,6 +24,8 @@ MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序�
 
 `unreal_asset_*` 支持 `auto`、`editor`、`offline`。`auto` 在请求包含 Unreal 对象路径时优先使用唯一匹配 Editor；只有没有匹配会话且提供了完整离线文件参数时才回退。会话歧义或显式指定但不存在的 `editorSessionId` 仍然报错。离线结果只属于序列化静态证据，永远不标记为可写。离线解析器随本插件安装，不再需要额外的资产检查 skill。
 
-写入使用 `requestId` Journal。断线时客户端查询同一请求，不重放。Core 在一个写 Job 中执行预检、transaction、修改、编译、保存、重载验证和失败资产分类。
+所有长时间 Blueprint 工作都以 `requestId + method + canonical params` 保证幂等。validate/verify Job 仅在内存中保存，写 Job 使用 Request Journal；同一 ID 对应不同请求时返回 `REQUEST_CONFLICT`。
+
+预检把 Package 分为 `directWrite`、`compileCheck` 和 `referenceCheck`。写 Job 只使用一个 transaction，按依赖顺序编译直接目标和必要 Blueprint 依赖，只保存直接目标，重载已保存目标；若验证编译把原本干净的 compile-only 依赖标脏，则从磁盘恢复，最后验证直接资产、子 Blueprint 继承结果和普通引用。Source Control checkout、磁盘估算和文件 Hash 仅覆盖可能保存的 Package。
 
 English: [architecture.md](architecture.md)

@@ -26,6 +26,8 @@ namespace CodexUnrealBlueprint
             FJobSnapshot Snapshot;
             Snapshot.JobId = Record.JobId;
             Snapshot.RequestId = Record.RequestId;
+            Snapshot.Method = Record.Method;
+            Snapshot.Durability = TEXT("journal");
             Snapshot.Access = EJobAccess::Write;
             Snapshot.CreatedAt = Record.AcceptedAt;
             Snapshot.UpdatedAt = Record.UpdatedAt;
@@ -71,6 +73,8 @@ namespace CodexUnrealBlueprint
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
         Json->SetStringField(TEXT("jobId"), JobId);
         Json->SetStringField(TEXT("requestId"), RequestId);
+        Json->SetStringField(TEXT("method"), Method);
+        Json->SetStringField(TEXT("durability"), Durability);
         Json->SetStringField(TEXT("access"), AccessToString(Access));
         Json->SetStringField(TEXT("phase"), LexToString(Phase));
         Json->SetBoolField(TEXT("terminal"), bTerminal);
@@ -164,6 +168,7 @@ namespace CodexUnrealBlueprint
             bool bRunning = false;
             bool bLeaseTimedOut = false;
             bool bJournaled = false;
+            FString PayloadHash;
         };
 
         struct FWaiter
@@ -243,6 +248,8 @@ namespace CodexUnrealBlueprint
         TSharedPtr<FImpl::FRecord, ESPMode::ThreadSafe> Record = MakeShared<FImpl::FRecord, ESPMode::ThreadSafe>();
         Record->Snapshot.JobId = JobId;
         Record->Snapshot.RequestId = RequestId;
+        Record->Snapshot.Method = TEXT("internal");
+        Record->Snapshot.Durability = TEXT("memory");
         Record->Snapshot.Access = Access;
         Record->Snapshot.CreatedAt = FDateTime::UtcNow();
         Record->Snapshot.UpdatedAt = Record->Snapshot.CreatedAt;
@@ -251,6 +258,70 @@ namespace CodexUnrealBlueprint
         if (!RequestId.IsEmpty()) Impl->RequestJobs.Add(RequestId, JobId);
         Impl->Queue.Add(JobId);
         return JobId;
+    }
+
+    bool FJobManager::StartRead(
+        const FString& Method,
+        const FString& RequestId,
+        const TSharedPtr<FJsonObject>& Params,
+        FJobWork Work,
+        FJobSnapshot& OutSnapshot,
+        FProtocolError& OutError,
+        bool& bOutReplay)
+    {
+        bOutReplay = false;
+        OutError = FProtocolError();
+        if (!Work || Method.IsEmpty() || RequestId.TrimStartAndEnd().IsEmpty())
+        {
+            OutError = FProtocolError::Make(EErrorCode::RequestIdRequired,
+                TEXT("Read jobs require a method and non-empty requestId."), TEXT("FJobManager::StartRead"));
+            return false;
+        }
+        const FString PayloadHash = FRequestJournal::HashCanonicalParams(Params);
+        FScopeLock Lock(&Impl->Mutex);
+        if (Impl->bShuttingDown)
+        {
+            OutError = FProtocolError::Make(EErrorCode::InternalError,
+                TEXT("Job manager is shutting down."), TEXT("FJobManager::StartRead"));
+            return false;
+        }
+        if (const FString* ExistingJobId = Impl->RequestJobs.Find(RequestId))
+        {
+            const TSharedPtr<FImpl::FRecord, ESPMode::ThreadSafe> Existing = Impl->Jobs.FindRef(*ExistingJobId);
+            if (!Existing.IsValid() || Existing->Snapshot.Method != Method || Existing->PayloadHash != PayloadHash)
+            {
+                OutError = FProtocolError::Make(EErrorCode::RequestConflict,
+                    TEXT("requestId is already bound to a different method or canonical payload."),
+                    TEXT("FJobManager::StartRead"));
+                return false;
+            }
+            bOutReplay = true;
+            OutSnapshot = Existing->Snapshot;
+            return true;
+        }
+        if (Impl->Queue.Num() >= MaxQueuedJobs)
+        {
+            OutError = FProtocolError::Make(EErrorCode::JobQueueFull,
+                FString::Printf(TEXT("The global job queue limit of %d has been reached."), MaxQueuedJobs),
+                TEXT("FJobManager::StartRead"));
+            return false;
+        }
+        const FString JobId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens).ToLower();
+        TSharedPtr<FImpl::FRecord, ESPMode::ThreadSafe> Record = MakeShared<FImpl::FRecord, ESPMode::ThreadSafe>();
+        Record->Snapshot.JobId = JobId;
+        Record->Snapshot.RequestId = RequestId;
+        Record->Snapshot.Method = Method;
+        Record->Snapshot.Durability = TEXT("memory");
+        Record->Snapshot.Access = EJobAccess::Read;
+        Record->Snapshot.CreatedAt = FDateTime::UtcNow();
+        Record->Snapshot.UpdatedAt = Record->Snapshot.CreatedAt;
+        Record->PayloadHash = PayloadHash;
+        Record->Work = MoveTemp(Work);
+        Impl->Jobs.Add(JobId, Record);
+        Impl->RequestJobs.Add(RequestId, JobId);
+        Impl->Queue.Add(JobId);
+        OutSnapshot = Record->Snapshot;
+        return true;
     }
 
     bool FJobManager::StartWrite(
@@ -268,6 +339,24 @@ namespace CodexUnrealBlueprint
             OutError = FProtocolError::Make(EErrorCode::RequestIdRequired,
                 TEXT("Write requests require a non-empty requestId."), TEXT("FJobManager::StartWrite"));
             return false;
+        }
+        const FString PayloadHash = FRequestJournal::HashCanonicalParams(Params);
+        {
+            FScopeLock Lock(&Impl->Mutex);
+            if (const FString* ExistingJobId = Impl->RequestJobs.Find(RequestId))
+            {
+                const TSharedPtr<FImpl::FRecord, ESPMode::ThreadSafe> Existing = Impl->Jobs.FindRef(*ExistingJobId);
+                if (!Existing.IsValid() || Existing->Snapshot.Method != Method || Existing->PayloadHash != PayloadHash)
+                {
+                    OutError = FProtocolError::Make(EErrorCode::RequestConflict,
+                        TEXT("requestId is already bound to a different method or canonical payload."),
+                        TEXT("FJobManager::StartWrite"));
+                    return false;
+                }
+                bOutReplay = true;
+                OutSnapshot = Existing->Snapshot;
+                return true;
+            }
         }
 
         const FString ProposedJobId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens).ToLower();
@@ -312,6 +401,9 @@ namespace CodexUnrealBlueprint
         }
         TSharedPtr<FImpl::FRecord, ESPMode::ThreadSafe> Record = MakeShared<FImpl::FRecord, ESPMode::ThreadSafe>();
         Record->Snapshot = SnapshotFromJournal(JournalRecord);
+        Record->Snapshot.Method = Method;
+        Record->Snapshot.Durability = TEXT("journal");
+        Record->PayloadHash = PayloadHash;
         Record->Work = MoveTemp(Work);
         Record->bJournaled = true;
         Impl->Jobs.Add(JournalRecord.JobId, Record);

@@ -36,10 +36,13 @@ namespace CodexUnrealBlueprint
         bool WasModified(const UObject* Object) const;
         void MarkPackageChanged(UPackage* Package);
         const TSet<UPackage*>& GetChangedPackages() const;
+        void RecordOperationResult(int32 OperationIndex, const TSharedPtr<FJsonObject>& Data);
+        const TMap<int32, TSharedPtr<FJsonObject>>& GetOperationResults() const;
 
     private:
         TSet<const UObject*> ModifiedObjects;
         TSet<UPackage*> ChangedPackages;
+        TMap<int32, TSharedPtr<FJsonObject>> OperationResults;
     };
 
     class CODEXUNREALBLUEPRINTCORE_API IWriteOperation
@@ -60,7 +63,15 @@ namespace CodexUnrealBlueprint
         FString SavedHash;
         bool bSaveAttempted = false;
         bool bSaved = false;
-        bool bMarkedForAdd = false;
+        bool bDirectWrite = false;
+        bool bCompileCheck = false;
+        bool bReferenceCheck = false;
+        TArray<int32> OperationIndices;
+        TArray<FString> ReferencedFrom;
+        bool bExistingFile = false;
+        bool bNewFileNeedsAdd = false;
+        bool bAddAttempted = false;
+        bool bAddSucceeded = false;
         bool bReloaded = false;
         bool bVerified = false;
         FString Error;
@@ -86,6 +97,7 @@ namespace CodexUnrealBlueprint
         TArray<FString> ImpactPackages;
         TArray<FString> CompilerWarnings;
         TArray<FWritePackageResult> Packages;
+        TMap<int32, TSharedPtr<FJsonObject>> OperationResults;
         FWritePipelineError Error;
         FWriteFailureReport FailureReport;
 

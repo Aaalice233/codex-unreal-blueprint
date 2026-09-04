@@ -12,10 +12,10 @@
 | `unreal_asset_referencers` | 查找 Asset Registry 或序列化二进制引用 | 只读 |
 | `blueprint_capabilities` | 从 Operation Registry 读取 Schema 和示例 | 只读 |
 | `blueprint_inspect` | 分页读取 facet、稳定 ID、编译状态和结构 hash | 只读 |
-| `blueprint_validate` | 在内存中预检一次性 operations | 只读 |
+| `blueprint_validate` | 启动幂等的内存预检 Job（必填 `requestId`） | 只读 |
 | `blueprint_apply` | 使用唯一 `requestId` 启动自动事务写入 | 破坏性 |
 | `blueprint_job` | 按 `jobId`/`requestId` 查询、等待或取消 | 非只读 |
-| `blueprint_verify` | 编译、重载并断言磁盘结构 | 只读 |
+| `blueprint_verify` | 启动幂等的编译、重载和断言 Job（必填 `requestId`） | 只读 |
 
 ## 分层资产检查
 
@@ -31,6 +31,12 @@
 
 `blueprint_job wait` 的 `timeoutMs` 范围为 0–600000；MCP 宿主超时为 620 秒。所有成功结果同时出现在文本与 `structuredContent.result`。失败结果位于 `structuredContent.error`，包含稳定错误码及可用的资产、operation、callsite、编译和部分失败信息。
 
-`unreal_status` 在唯一匹配时返回 `connected: true` 和精确的 `session` 元数据，并保持 UE 状态字段位于结果顶层。会话发现只读取当前进程的描述文件；实际 RPC 连接负责认证和可用性验证，不再额外创建端口探测连接。
+协议 `2.0.0` 下，`blueprint_validate`、`blueprint_apply` 和 `blueprint_verify` 都立即返回 `JobSnapshot`。Snapshot 包含 `method` 和 `durability`（只读 Job 为 `memory`，写入为 `journal`）。相同 `requestId`、method 和规范化参数返回原 Job；同一 ID 对应不同请求时返回 `REQUEST_CONFLICT`。
+
+`blueprint_inspect` 返回不受 facet、过滤和分页影响的全局 `structureHash`，并带 `structureHashScope: "blueprint-structure-v1"` 及各完整请求 facet 的 Hash。`componentQuery` 先按名称、正则、Class 或继承关系过滤，再分页，并可选择字段与精确模板属性路径；结果同时报告组件总数和匹配数。
+
+Operation Registry 支持 `component.add.initialProperties`、原子的 `component.cloneRange`（恰好一个 `{index}`，最多 200 个组件）以及文本/结构化 JSON Transform。verify expectation 可断言 Package Dirty、单组件或连续编号范围、Class/继承/父节点/Transform/属性，以及过滤后的组件数量。
+
+`unreal_status` 在唯一匹配时返回 `connected: true` 和精确的 `session` 元数据，并保持 UE 状态字段位于结果顶层。Session 元数据包含可执行文件身份和心跳；过期描述不会参与选择，而是作为诊断返回。Source Control 输出区分 Editor Provider 与检测到的 `.git`/`.svn` 工作副本；Provider 未启用时文件状态为 `unknown`。
 
 English: [mcp-reference.md](mcp-reference.md)

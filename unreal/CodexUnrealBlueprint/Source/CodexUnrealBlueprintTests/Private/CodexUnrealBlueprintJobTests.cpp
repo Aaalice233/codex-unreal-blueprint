@@ -119,6 +119,37 @@ bool FCodexRequestJournalIdempotencyTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexReadJobIdempotencyTest,
+    "CodexUnrealBlueprint.Idempotency.ReadJobReplayAndConflict", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexReadJobIdempotencyTest::RunTest(const FString& Parameters)
+{
+    FJobManager& Manager = FJobManager::Get();
+    const FString RequestId = TEXT("read-") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    FJobSnapshot First; FProtocolError Error; bool bReplay = false;
+    const auto MakeWork = []() -> FJobWork { return [](FJobExecutionContext&, TSharedPtr<FJsonObject>& Result, FProtocolError&)
+    {
+        Result = MakeShared<FJsonObject>(); Result->SetBoolField(TEXT("valid"), true); return true;
+    }; };
+    TestTrue(TEXT("first read job starts"), Manager.StartRead(TEXT("blueprint.validate"), RequestId,
+        MakeParams(RequestId, 1), MakeWork(), First, Error, bReplay));
+    TestFalse(TEXT("first read job is not replay"), bReplay);
+    TestEqual(TEXT("read job method is exposed"), First.Method, FString(TEXT("blueprint.validate")));
+    TestEqual(TEXT("read job durability is memory"), First.Durability, FString(TEXT("memory")));
+
+    FJobSnapshot Replay;
+    TestTrue(TEXT("same canonical request replays"), Manager.StartRead(TEXT("blueprint.validate"), RequestId,
+        MakeParams(RequestId, 1), MakeWork(), Replay, Error, bReplay));
+    TestTrue(TEXT("replay is identified"), bReplay);
+    TestEqual(TEXT("replay returns original job"), Replay.JobId, First.JobId);
+
+    FJobSnapshot Conflict;
+    TestFalse(TEXT("same requestId with changed payload conflicts"), Manager.StartRead(TEXT("blueprint.validate"), RequestId,
+        MakeParams(RequestId, 2), MakeWork(), Conflict, Error, bReplay));
+    TestEqual(TEXT("conflict uses stable code"), Error.Code, EErrorCode::RequestConflict);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexRequestJournalConcurrentDuplicateTest,
     "CodexUnrealBlueprint.Idempotency.ConcurrentDuplicate", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

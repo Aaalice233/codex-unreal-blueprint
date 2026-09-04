@@ -56,7 +56,7 @@ namespace CodexUnrealBlueprint
             Response.Id = Request.Id;
             Response.IdJsonValue = Request.IdJsonValue;
             Response.Error = FProtocolError::Make(EErrorCode::RequestIdRequired,
-                TEXT("Every write request requires a non-empty requestId in params."), TEXT("FCoreService::Dispatch"));
+                TEXT("This job request requires a non-empty requestId in params."), TEXT("FCoreService::Dispatch"));
             return Response;
         }
 
@@ -194,9 +194,9 @@ namespace CodexUnrealBlueprint
         if (Request.Method == TEXT("unreal.asset.referencers")) return RunOnGameThread([this, &Request]() { return FindAssetReferencers(Request); });
         if (Request.Method == TEXT("blueprint.capabilities")) return Capabilities(Request);
         if (Request.Method == TEXT("blueprint.inspect")) return RunOnGameThread([this, &Request]() { return Inspect(Request); });
-        if (Request.Method == TEXT("blueprint.validate")) return RunOnGameThread([this, &Request]() { return Validate(Request); });
+        if (Request.Method == TEXT("blueprint.validate")) return Validate(Request);
         if (Request.Method == TEXT("blueprint.apply")) return Apply(Request);
-        if (Request.Method == TEXT("blueprint.verify")) return RunOnGameThread([this, &Request]() { return Verify(Request); });
+        if (Request.Method == TEXT("blueprint.verify")) return Verify(Request);
         if (Request.Method == TEXT("blueprint.request")) return GetRequestJournal(Request);
         if (Request.Method == TEXT("blueprint.job"))
         {
@@ -317,9 +317,15 @@ namespace CodexUnrealBlueprint
         Response.Result->SetObjectField(TEXT("requestJournal"), Journal.ToJson());
         TSharedRef<FJsonObject> SourceControlJson = MakeShared<FJsonObject>();
         SourceControlJson->SetBoolField(TEXT("healthy"), SourceControl.bSucceeded);
-        SourceControlJson->SetBoolField(TEXT("providerEnabled"), SourceControl.bProviderEnabled);
-        SourceControlJson->SetBoolField(TEXT("providerAvailable"), SourceControl.bProviderAvailable);
-        SourceControlJson->SetStringField(TEXT("providerName"), SourceControl.ProviderName);
+        TSharedRef<FJsonObject> EditorProvider = MakeShared<FJsonObject>();
+        EditorProvider->SetBoolField(TEXT("enabled"), SourceControl.bProviderEnabled);
+        EditorProvider->SetBoolField(TEXT("available"), SourceControl.bProviderAvailable);
+        EditorProvider->SetStringField(TEXT("name"), SourceControl.ProviderName);
+        SourceControlJson->SetObjectField(TEXT("editorProvider"), EditorProvider);
+        TSharedRef<FJsonObject> WorkingCopy = MakeShared<FJsonObject>();
+        WorkingCopy->SetStringField(TEXT("kind"), SourceControl.WorkingCopyKind);
+        WorkingCopy->SetStringField(TEXT("root"), SourceControl.WorkingCopyRoot);
+        SourceControlJson->SetObjectField(TEXT("workingCopy"), WorkingCopy);
         if (!SourceControl.Error.IsEmpty()) SourceControlJson->SetStringField(TEXT("error"), SourceControl.Error);
         Response.Result->SetObjectField(TEXT("sourceControl"), SourceControlJson);
         if (!bJournal) Response.Result->SetObjectField(TEXT("journalError"), JournalError.ToJson());
@@ -474,7 +480,7 @@ namespace CodexUnrealBlueprint
 
     FProtocolResponse FCoreService::Inspect(const FProtocolRequest& Request) const
     {
-        FProtocolResponse Strict; if (!RejectUnknownParams(Request, {TEXT("assetPath"),TEXT("facets"),TEXT("classDefaultPropertyPaths"),TEXT("cursor"),TEXT("limit")}, Strict)) return Strict;
+        FProtocolResponse Strict; if (!RejectUnknownParams(Request, {TEXT("assetPath"),TEXT("facets"),TEXT("classDefaultPropertyPaths"),TEXT("componentQuery"),TEXT("cursor"),TEXT("limit")}, Strict)) return Strict;
         FString AssetPath, Cursor; double LimitNumber = 500; if (!Request.Params->TryGetStringField(TEXT("assetPath"), AssetPath) || AssetPath.TrimStartAndEnd().IsEmpty()) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument, TEXT("assetPath is required."), TEXT("FCoreService::Inspect"))); Request.Params->TryGetStringField(TEXT("cursor"), Cursor); Request.Params->TryGetNumberField(TEXT("limit"), LimitNumber);
         int32 Offset = 0;
         if (!ParseOffsetCursor(Cursor, Offset) || !FMath::IsNearlyEqual(LimitNumber, FMath::RoundToDouble(LimitNumber)) || LimitNumber < 1 || LimitNumber > 500)
@@ -494,71 +500,136 @@ namespace CodexUnrealBlueprint
                 ClassDefaultPropertyPaths.AddUnique(PropertyPath);
             }
         }
-        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error; if (!FBlueprintInspection::Inspect(AssetPath, Facets, ClassDefaultPropertyPaths, Offset, static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
+        const TSharedPtr<FJsonObject>* ComponentQueryValue = nullptr;
+        if (Request.Params->HasField(TEXT("componentQuery")) && !Request.Params->TryGetObjectField(TEXT("componentQuery"), ComponentQueryValue))
+            return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("componentQuery must be an object."), TEXT("FCoreService::Inspect")));
+        const TSharedPtr<FJsonObject> ComponentQuery = ComponentQueryValue ? *ComponentQueryValue : TSharedPtr<FJsonObject>();
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error; if (!FBlueprintInspection::Inspect(AssetPath, Facets, ClassDefaultPropertyPaths, ComponentQuery, Offset, static_cast<int32>(LimitNumber), Result, Error)) return ErrorResponse(Request, Error);
         FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue; Response.Result = Result; return Response;
     }
 
     FProtocolResponse FCoreService::Validate(const FProtocolRequest& Request) const
     {
-        FProtocolResponse Strict; if (!RejectUnknownParams(Request, {TEXT("operations"),TEXT("expectedStructureHashes")}, Strict)) return Strict;
-        TArray<TSharedRef<FJsonObject>> Operations; if (!ReadOperations(Request, Operations, Strict)) return Strict; TMap<FString,FString> Hashes; if (!ReadExpectedHashes(Request, Hashes, Strict)) return Strict;
-        FPreflightRequest Preflight; TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error; if (!FOperationRegistry::Get().Validate(Operations, Preflight, Result, Error)) return ErrorResponse(Request, Error); Preflight.ExpectedStateHashes = Hashes;
-        const FPreflightResult Check = FWritePreflight::Run(Preflight);
-        Result->SetBoolField(TEXT("valid"), Check.bSucceeded);
-        Result->SetNumberField(TEXT("requiredBytes"), static_cast<double>(Check.RequiredBytes));
-        Result->SetNumberField(TEXT("freeBytes"), static_cast<double>(Check.FreeBytes));
-        TArray<TSharedPtr<FJsonValue>> ImpactPackages;
-        for (const FImpactPackage& Impact : Check.ImpactPackages)
-        {
-            TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
-            Item->SetStringField(TEXT("packageName"), Impact.PackageName);
-            Item->SetStringField(TEXT("filename"), Impact.Filename);
-            Item->SetBoolField(TEXT("existsOnDisk"), Impact.bExistsOnDisk);
-            Item->SetBoolField(TEXT("wasDirty"), Impact.bWasDirty);
-            Item->SetBoolField(TEXT("readOnly"), Impact.bReadOnly);
-            Item->SetStringField(TEXT("beforeHash"), Impact.BeforeHash);
-            Item->SetStringField(TEXT("expectedHash"), Impact.ExpectedHash);
-            ImpactPackages.Add(MakeShared<FJsonValueObject>(Item));
-        }
-        Result->SetArrayField(TEXT("impactPackages"), ImpactPackages);
-        TArray<TSharedPtr<FJsonValue>> CompileOrder;
-        for (const FString& PackageName : Check.CompileOrder)
-            CompileOrder.Add(MakeShared<FJsonValueString>(PackageName));
-        Result->SetArrayField(TEXT("compileOrder"), CompileOrder);
-        TSharedRef<FJsonObject> SourceControl = MakeShared<FJsonObject>();
-        SourceControl->SetBoolField(TEXT("succeeded"), Check.SourceControl.bSucceeded);
-        SourceControl->SetBoolField(TEXT("providerEnabled"), Check.SourceControl.bProviderEnabled);
-        SourceControl->SetBoolField(TEXT("providerAvailable"), Check.SourceControl.bProviderAvailable);
-        SourceControl->SetStringField(TEXT("providerName"), Check.SourceControl.ProviderName);
-        SourceControl->SetStringField(TEXT("error"), Check.SourceControl.Error);
-        TArray<TSharedPtr<FJsonValue>> SourceControlFiles;
-        for (const FSourceControlFileState& File : Check.SourceControl.Files)
-        {
-            TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
-            Item->SetStringField(TEXT("filename"), File.Filename);
-            Item->SetBoolField(TEXT("exists"), File.bExists);
-            Item->SetBoolField(TEXT("readOnly"), File.bReadOnly);
-            Item->SetBoolField(TEXT("sourceControlled"), File.bSourceControlled);
-            Item->SetBoolField(TEXT("checkedOut"), File.bCheckedOut);
-            Item->SetBoolField(TEXT("canCheckout"), File.bCanCheckout);
-            Item->SetStringField(TEXT("checkedOutBy"), File.CheckedOutBy);
-            SourceControlFiles.Add(MakeShared<FJsonValueObject>(Item));
-        }
-        SourceControl->SetArrayField(TEXT("files"), SourceControlFiles);
-        Result->SetObjectField(TEXT("sourceControl"), SourceControl);
-        TArray<TSharedPtr<FJsonValue>> Issues;
-        for (const FPreflightIssue& Issue : Check.Issues)
-        {
-            TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
-            Item->SetStringField(TEXT("code"), Issue.Code);
-            Item->SetStringField(TEXT("message"), Issue.Message);
-            Item->SetStringField(TEXT("packageName"), Issue.PackageName);
-            Item->SetStringField(TEXT("referencePath"), Issue.ReferencePath);
-            Item->SetNumberField(TEXT("operationIndex"), Issue.OperationIndex);
-            Issues.Add(MakeShared<FJsonValueObject>(Item));
-        }
-        Result->SetArrayField(TEXT("issues"), Issues);
-        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue; Response.Result = Result; return Response;
+        FProtocolResponse Strict;
+        if (!RejectUnknownParams(Request, {TEXT("requestId"),TEXT("operations"),TEXT("expectedStructureHashes")}, Strict)) return Strict;
+        FString RequestId;
+        if (!Request.Params.IsValid() || !Request.Params->TryGetStringField(TEXT("requestId"), RequestId)
+            || RequestId.TrimStartAndEnd().IsEmpty()) return RequestIdRequired(Request);
+        TArray<TSharedRef<FJsonObject>> Operations;
+        if (!ReadOperations(Request, Operations, Strict)) return Strict;
+        TMap<FString,FString> Hashes;
+        if (!ReadExpectedHashes(Request, Hashes, Strict)) return Strict;
+        FJobSnapshot Snapshot;
+        FProtocolError Error;
+        bool bReplay = false;
+        const bool bStarted = FJobManager::Get().StartRead(TEXT("blueprint.validate"), RequestId, Request.Params,
+            [Operations, Hashes](FJobExecutionContext& Context, TSharedPtr<FJsonObject>& JobResult, FProtocolError& JobError)
+            {
+                Context.EnterPhase(EJobPhase::Preflight, true, TEXT("Validating operations and affected packages."));
+                bool bSucceeded = false;
+                FProtocolResponse Internal = RunOnGameThread([&Operations, &Hashes, &Context]()
+                {
+                    FProtocolRequest EmptyRequest;
+                    FProtocolResponse Response;
+                    FPreflightRequest Preflight;
+                    TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+                    FProtocolError Error;
+                    if (!FOperationRegistry::Get().Validate(Operations, Preflight, Result, Error))
+                    {
+                        Response.Error = Error;
+                        return Response;
+                    }
+                    Preflight.ExpectedStructureHashes = Hashes;
+                    Context.ReportProgress(Operations.Num(), Operations.Num(), TEXT("Validated operation schemas."));
+                    const FPreflightResult Check = FWritePreflight::Run(Preflight);
+                    Result->SetBoolField(TEXT("valid"), Check.bSucceeded);
+                    Result->SetNumberField(TEXT("requiredBytes"), static_cast<double>(Check.RequiredBytes));
+                    Result->SetNumberField(TEXT("freeBytes"), static_cast<double>(Check.FreeBytes));
+                    TArray<TSharedPtr<FJsonValue>> ImpactPackages;
+                    for (int32 Index = 0; Index < Check.ImpactPackages.Num(); ++Index)
+                    {
+                        const FImpactPackage& Impact = Check.ImpactPackages[Index];
+                        TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
+                        Item->SetStringField(TEXT("packageName"), Impact.PackageName);
+                        Item->SetStringField(TEXT("filename"), Impact.Filename);
+                        Item->SetBoolField(TEXT("existsOnDisk"), Impact.bExistsOnDisk);
+                        Item->SetBoolField(TEXT("wasDirty"), Impact.bWasDirty);
+                        Item->SetBoolField(TEXT("readOnly"), Impact.bReadOnly);
+                        TArray<TSharedPtr<FJsonValue>> Roles;
+                        if (Impact.bDirectWrite) Roles.Add(MakeShared<FJsonValueString>(TEXT("directWrite")));
+                        if (Impact.bCompileCheck) Roles.Add(MakeShared<FJsonValueString>(TEXT("compileCheck")));
+                        if (Impact.bReferenceCheck) Roles.Add(MakeShared<FJsonValueString>(TEXT("referenceCheck")));
+                        Item->SetArrayField(TEXT("roles"), Roles);
+                        TArray<TSharedPtr<FJsonValue>> Reasons;
+                        for (const int32 OperationIndex : Impact.OperationIndices)
+                        {
+                            TSharedRef<FJsonObject> Reason = MakeShared<FJsonObject>();
+                            Reason->SetNumberField(TEXT("operationIndex"), OperationIndex);
+                            Reason->SetStringField(TEXT("basis"), Impact.bDirectWrite ? TEXT("direct-target")
+                                : Impact.bCompileCheck ? TEXT("blueprint-dependency") : TEXT("package-referencer"));
+                            TArray<TSharedPtr<FJsonValue>> Sources;
+                            for (const FString& Source : Impact.ReferencedFrom) Sources.Add(MakeShared<FJsonValueString>(Source));
+                            Reason->SetArrayField(TEXT("referencedFrom"), Sources);
+                            Reasons.Add(MakeShared<FJsonValueObject>(Reason));
+                        }
+                        Item->SetArrayField(TEXT("reasons"), Reasons);
+                        Item->SetStringField(TEXT("beforeFileHash"), Impact.BeforeHash);
+                        Item->SetStringField(TEXT("expectedStructureHash"), Impact.ExpectedHash);
+                        Item->SetStringField(TEXT("actualStructureHash"), Impact.ActualStructureHash);
+                        if (Impact.bHasStructureExpectation) Item->SetBoolField(TEXT("structureHashMatched"), Impact.bStructureHashMatched);
+                        ImpactPackages.Add(MakeShared<FJsonValueObject>(Item));
+                        Context.ReportProgress(Index + 1, Check.ImpactPackages.Num(), TEXT("Validated affected package."), Impact.PackageName);
+                    }
+                    Result->SetArrayField(TEXT("impactPackages"), ImpactPackages);
+                    TSharedRef<FJsonObject> SourceControl = MakeShared<FJsonObject>();
+                    TSharedRef<FJsonObject> EditorProvider = MakeShared<FJsonObject>();
+                    EditorProvider->SetBoolField(TEXT("enabled"), Check.SourceControl.bProviderEnabled);
+                    EditorProvider->SetBoolField(TEXT("available"), Check.SourceControl.bProviderAvailable);
+                    EditorProvider->SetStringField(TEXT("name"), Check.SourceControl.ProviderName);
+                    SourceControl->SetObjectField(TEXT("editorProvider"), EditorProvider);
+                    TSharedRef<FJsonObject> WorkingCopy = MakeShared<FJsonObject>();
+                    WorkingCopy->SetStringField(TEXT("kind"), Check.SourceControl.WorkingCopyKind);
+                    WorkingCopy->SetStringField(TEXT("root"), Check.SourceControl.WorkingCopyRoot);
+                    SourceControl->SetObjectField(TEXT("workingCopy"), WorkingCopy);
+                    TArray<TSharedPtr<FJsonValue>> SourceFiles;
+                    for (const FSourceControlFileState& File : Check.SourceControl.Files)
+                    {
+                        TSharedRef<FJsonObject> FileJson = MakeShared<FJsonObject>();
+                        FileJson->SetStringField(TEXT("filename"), File.Filename);
+                        FileJson->SetStringField(TEXT("editorProviderState"), !Check.SourceControl.bProviderEnabled ? TEXT("unknown")
+                            : File.bAdded ? TEXT("added") : File.bCheckedOut ? TEXT("checkedOut")
+                            : File.bSourceControlled ? TEXT("controlled") : TEXT("uncontrolled"));
+                        FileJson->SetBoolField(TEXT("existingFile"), File.bExists);
+                        FileJson->SetBoolField(TEXT("newFileNeedsAdd"), !File.bExists);
+                        SourceFiles.Add(MakeShared<FJsonValueObject>(FileJson));
+                    }
+                    SourceControl->SetArrayField(TEXT("files"), SourceFiles);
+                    Result->SetObjectField(TEXT("sourceControl"), SourceControl);
+                    TArray<TSharedPtr<FJsonValue>> CompileOrder;
+                    for (const FString& PackageName : Check.CompileOrder) CompileOrder.Add(MakeShared<FJsonValueString>(PackageName));
+                    Result->SetArrayField(TEXT("compileOrder"), CompileOrder);
+                    TArray<TSharedPtr<FJsonValue>> Issues;
+                    for (const FPreflightIssue& Issue : Check.Issues)
+                    {
+                        TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
+                        Item->SetStringField(TEXT("code"), Issue.Code); Item->SetStringField(TEXT("message"), Issue.Message);
+                        Item->SetStringField(TEXT("packageName"), Issue.PackageName); Item->SetStringField(TEXT("referencePath"), Issue.ReferencePath);
+                        Item->SetNumberField(TEXT("operationIndex"), Issue.OperationIndex); Issues.Add(MakeShared<FJsonValueObject>(Item));
+                    }
+                    Result->SetArrayField(TEXT("issues"), Issues);
+                    Response.Result = Result;
+                    return Response;
+                });
+                if (Internal.Error.IsSet()) { JobError = Internal.Error.GetValue(); return false; }
+                JobResult = Internal.Result;
+                bSucceeded = JobResult.IsValid() && JobResult->GetBoolField(TEXT("valid"));
+                if (!bSucceeded) JobError = FProtocolError::Make(EErrorCode::ValidationFailed,
+                    TEXT("Blueprint preflight validation failed."), TEXT("FWritePreflight::Run"));
+                return bSucceeded;
+            }, Snapshot, Error, bReplay);
+        if (!bStarted) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Snapshot.ToJson(); Response.Result->SetBoolField(TEXT("replay"), bReplay); return Response;
     }
 
     FProtocolResponse FCoreService::Apply(const FProtocolRequest& Request) const
@@ -584,12 +655,37 @@ namespace CodexUnrealBlueprint
 
     FProtocolResponse FCoreService::Verify(const FProtocolRequest& Request) const
     {
-        FProtocolResponse Strict; if (!RejectUnknownParams(Request, {TEXT("assetPaths"),TEXT("expectations"),TEXT("compile"),TEXT("reload")}, Strict)) return Strict;
+        FProtocolResponse Strict; if (!RejectUnknownParams(Request, {TEXT("requestId"),TEXT("assetPaths"),TEXT("expectations"),TEXT("compile"),TEXT("reload")}, Strict)) return Strict;
+        FString RequestId; if (!Request.Params.IsValid() || !Request.Params->TryGetStringField(TEXT("requestId"), RequestId) || RequestId.TrimStartAndEnd().IsEmpty()) return RequestIdRequired(Request);
         const TArray<TSharedPtr<FJsonValue>>* Paths = nullptr; if (!Request.Params->TryGetArrayField(TEXT("assetPaths"), Paths) || !Paths || !Paths->Num()) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::InvalidArgument, TEXT("assetPaths must be a non-empty array."), TEXT("FCoreService::Verify")));
         TArray<FString> AssetPaths; for (const TSharedPtr<FJsonValue>& Value : *Paths) { FString Path; if (!Value.IsValid() || !Value->TryGetString(Path) || Path.IsEmpty()) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("assetPaths must contain non-empty strings."), TEXT("FCoreService::Verify"))); AssetPaths.Add(Path); }
         const TArray<TSharedPtr<FJsonValue>>* Expectations = nullptr; static const TArray<TSharedPtr<FJsonValue>> Empty; if (Request.Params->HasField(TEXT("expectations")) && !Request.Params->TryGetArrayField(TEXT("expectations"), Expectations)) return ErrorResponse(Request, FProtocolError::Make(EErrorCode::TypeMismatch, TEXT("expectations must be an array."), TEXT("FCoreService::Verify")));
-        bool bCompile = true, bReload = true; Request.Params->TryGetBoolField(TEXT("compile"), bCompile); Request.Params->TryGetBoolField(TEXT("reload"), bReload); TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error; if (!FBlueprintVerification::Verify(AssetPaths, Expectations ? *Expectations : Empty, bCompile, bReload, Result, Error)) return ErrorResponse(Request, Error);
-        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue; Response.Result = Result; return Response;
+        bool bCompile = true, bReload = true; Request.Params->TryGetBoolField(TEXT("compile"), bCompile); Request.Params->TryGetBoolField(TEXT("reload"), bReload);
+        const TArray<TSharedPtr<FJsonValue>> ExpectationValues = Expectations ? *Expectations : Empty;
+        FJobSnapshot Snapshot; FProtocolError Error; bool bReplay = false;
+        const bool bStarted = FJobManager::Get().StartRead(TEXT("blueprint.verify"), RequestId, Request.Params,
+            [AssetPaths, ExpectationValues, bCompile, bReload](FJobExecutionContext& Context, TSharedPtr<FJsonObject>& JobResult, FProtocolError& JobError)
+            {
+                if (bReload) Context.EnterPhase(EJobPhase::Reload, false, TEXT("Reloading verification packages from disk."));
+                else if (bCompile) Context.EnterPhase(EJobPhase::Compile, false, TEXT("Compiling verification Blueprints."));
+                else Context.EnterPhase(EJobPhase::Verify, true, TEXT("Verifying Blueprint structure."));
+                FProtocolResponse Internal = RunOnGameThread([&AssetPaths, &ExpectationValues, bCompile, bReload, &Context]()
+                {
+                    FProtocolResponse Response; TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>(); FProtocolError Error;
+                    if (!FBlueprintVerification::Verify(AssetPaths, ExpectationValues, bCompile, bReload, Result, Error,
+                        [&Context](const FString& Stage, const int32 Completed, const int32 Total, const FString& AssetPath)
+                        {
+                            Context.ReportProgress(Completed, Total, Stage + TEXT(" Blueprint."), AssetPath);
+                        })) { Response.Error = Error; return Response; }
+                    Response.Result = Result; return Response;
+                });
+                if (Internal.Error.IsSet()) { JobError = Internal.Error.GetValue(); return false; }
+                Context.EnterPhase(EJobPhase::Verify, true, TEXT("Blueprint verification completed."));
+                JobResult = Internal.Result; return true;
+            }, Snapshot, Error, bReplay);
+        if (!bStarted) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Snapshot.ToJson(); Response.Result->SetBoolField(TEXT("replay"), bReplay); return Response;
     }
 
     FProtocolResponse FCoreService::GetJob(const FProtocolRequest& Request) const

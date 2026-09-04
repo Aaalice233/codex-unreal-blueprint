@@ -222,6 +222,16 @@ namespace CodexUnrealBlueprint
         return ChangedPackages;
     }
 
+    void FWriteMutationContext::RecordOperationResult(const int32 OperationIndex, const TSharedPtr<FJsonObject>& Data)
+    {
+        if (Data.IsValid()) OperationResults.Add(OperationIndex, Data);
+    }
+
+    const TMap<int32, TSharedPtr<FJsonObject>>& FWriteMutationContext::GetOperationResults() const
+    {
+        return OperationResults;
+    }
+
     TSharedRef<FJsonObject> FWritePackageResult::ToJson() const
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
@@ -231,7 +241,29 @@ namespace CodexUnrealBlueprint
         Json->SetStringField(TEXT("savedHash"), SavedHash);
         Json->SetBoolField(TEXT("saveAttempted"), bSaveAttempted);
         Json->SetBoolField(TEXT("saved"), bSaved);
-        Json->SetBoolField(TEXT("markedForAdd"), bMarkedForAdd);
+        Json->SetBoolField(TEXT("directWrite"), bDirectWrite);
+        Json->SetBoolField(TEXT("compileCheck"), bCompileCheck);
+        Json->SetBoolField(TEXT("referenceCheck"), bReferenceCheck);
+        TArray<TSharedPtr<FJsonValue>> Roles;
+        if (bDirectWrite) Roles.Add(MakeShared<FJsonValueString>(TEXT("directWrite")));
+        if (bCompileCheck) Roles.Add(MakeShared<FJsonValueString>(TEXT("compileCheck")));
+        if (bReferenceCheck) Roles.Add(MakeShared<FJsonValueString>(TEXT("referenceCheck")));
+        Json->SetArrayField(TEXT("roles"), Roles);
+        TArray<TSharedPtr<FJsonValue>> Reasons;
+        for (const int32 OperationIndex : OperationIndices)
+        {
+            TSharedRef<FJsonObject> Reason = MakeShared<FJsonObject>();
+            Reason->SetNumberField(TEXT("operationIndex"), OperationIndex);
+            Reason->SetStringField(TEXT("basis"), bDirectWrite ? TEXT("direct-target")
+                : bCompileCheck ? TEXT("blueprint-dependency") : TEXT("package-referencer"));
+            Reason->SetArrayField(TEXT("referencedFrom"), WritePipelineStringsToJson(ReferencedFrom));
+            Reasons.Add(MakeShared<FJsonValueObject>(Reason));
+        }
+        Json->SetArrayField(TEXT("reasons"), Reasons);
+        Json->SetBoolField(TEXT("existingFile"), bExistingFile);
+        Json->SetBoolField(TEXT("newFileNeedsAdd"), bNewFileNeedsAdd);
+        Json->SetBoolField(TEXT("addAttempted"), bAddAttempted);
+        Json->SetBoolField(TEXT("addSucceeded"), bAddSucceeded);
         Json->SetBoolField(TEXT("reloaded"), bReloaded);
         Json->SetBoolField(TEXT("verified"), bVerified);
         if (!Error.IsEmpty()) Json->SetStringField(TEXT("error"), Error);
@@ -252,6 +284,18 @@ namespace CodexUnrealBlueprint
             PackageJson.Add(MakeShared<FJsonValueObject>(Package.ToJson()));
         }
         Json->SetArrayField(TEXT("packages"), PackageJson);
+        TArray<int32> OperationIndices;
+        OperationResults.GetKeys(OperationIndices);
+        OperationIndices.Sort();
+        TArray<TSharedPtr<FJsonValue>> OperationJson;
+        for (const int32 OperationIndex : OperationIndices)
+        {
+            TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
+            Item->SetNumberField(TEXT("operationIndex"), OperationIndex);
+            Item->SetObjectField(TEXT("data"), OperationResults.FindChecked(OperationIndex).ToSharedRef());
+            OperationJson.Add(MakeShared<FJsonValueObject>(Item));
+        }
+        Json->SetArrayField(TEXT("operationResults"), OperationJson);
         if (!Error.Code.IsEmpty())
         {
             TSharedRef<FJsonObject> ErrorJson = MakeShared<FJsonObject>();
@@ -351,6 +395,13 @@ namespace CodexUnrealBlueprint
             Package.PackageName = Impact.PackageName;
             Package.Filename = Impact.Filename;
             Package.BeforeHash = Impact.BeforeHash;
+            Package.bDirectWrite = Impact.bDirectWrite;
+            Package.bCompileCheck = Impact.bCompileCheck;
+            Package.bReferenceCheck = Impact.bReferenceCheck;
+            Package.OperationIndices = Impact.OperationIndices;
+            Package.ReferencedFrom = Impact.ReferencedFrom;
+            Package.bExistingFile = Impact.bExistsOnDisk;
+            Package.bNewFileNeedsAdd = Impact.bDirectWrite && !Impact.bExistsOnDisk;
             Result.Packages.Add(MoveTemp(Package));
         }
         if (!Preflight.bSucceeded)
@@ -365,6 +416,7 @@ namespace CodexUnrealBlueprint
         TArray<FString> NewFiles;
         for (const FImpactPackage& Impact : Preflight.ImpactPackages)
         {
+            if (!Impact.bDirectWrite) continue;
             (Impact.bExistsOnDisk ? ExistingFiles : NewFiles).Add(Impact.Filename);
         }
         const FSourceControlResult Checkout = FWriteSourceControl::Checkout(ExistingFiles);
@@ -410,6 +462,7 @@ namespace CodexUnrealBlueprint
 
             for (const FImpactPackage& Impact : Preflight.ImpactPackages)
             {
+                if (!Impact.bDirectWrite) continue;
                 UPackage* Package = FindPackage(nullptr, *Impact.PackageName);
                 if (Package == nullptr)
                 {
@@ -586,6 +639,7 @@ namespace CodexUnrealBlueprint
             PopulateFailureReport(Result, FailedPhase, Result.Error.Message);
             return Result;
         }
+        Result.OperationResults = MutationContext.GetOperationResults();
 
         if (Progress.IsCancellationRequested && Progress.IsCancellationRequested())
         {
@@ -612,6 +666,7 @@ namespace CodexUnrealBlueprint
         for (int32 Index = 0; Index < Preflight.ImpactPackages.Num(); ++Index)
         {
             FWritePackageResult& PackageResult = Result.Packages[Index];
+            if (!Preflight.ImpactPackages[Index].bDirectWrite) continue;
             if (bSaveFailure)
             {
                 PackageResult.Error = TEXT("Not saved because an earlier package save failed.");
@@ -673,7 +728,7 @@ namespace CodexUnrealBlueprint
         TArray<FString> SavedNewFiles;
         for (int32 Index = 0; Index < Preflight.ImpactPackages.Num(); ++Index)
         {
-            if (!Preflight.ImpactPackages[Index].bExistsOnDisk)
+            if (Preflight.ImpactPackages[Index].bDirectWrite && !Preflight.ImpactPackages[Index].bExistsOnDisk)
             {
                 SavedNewFiles.Add(Result.Packages[Index].Filename);
             }
@@ -688,9 +743,9 @@ namespace CodexUnrealBlueprint
         }
         for (int32 Index = 0; Index < Preflight.ImpactPackages.Num(); ++Index)
         {
-            Result.Packages[Index].bMarkedForAdd = Preflight.ImpactPackages[Index].bExistsOnDisk
-                || !MarkForAdd.bProviderEnabled
-                || MarkForAdd.bSucceeded;
+            if (!Preflight.ImpactPackages[Index].bDirectWrite || Preflight.ImpactPackages[Index].bExistsOnDisk) continue;
+            Result.Packages[Index].bAddAttempted = MarkForAdd.bProviderEnabled;
+            Result.Packages[Index].bAddSucceeded = MarkForAdd.bProviderEnabled && MarkForAdd.bSucceeded;
         }
 
         if (!EnterPhase(Progress, TEXT("reload"), false, TEXT("Reloading saved packages from disk."), Result.Error))
@@ -700,14 +755,19 @@ namespace CodexUnrealBlueprint
             return Result;
         }
         TArray<UPackage*> PackagesToReload;
+        TSet<FString> ReloadedPackageNames;
+        int32 ReloadCompleted = 0;
         for (int32 Index = 0; Index < Result.Packages.Num(); ++Index)
         {
             const FWritePackageResult& PackageResult = Result.Packages[Index];
-            if (UPackage* Package = FindPackage(nullptr, *PackageResult.PackageName))
+            const FImpactPackage& Impact = Preflight.ImpactPackages[Index];
+            UPackage* Package = FindPackage(nullptr, *PackageResult.PackageName);
+            const bool bRestoreCompileCheck = Impact.bCompileCheck && Package && Package->IsDirty() && !Impact.bWasDirty;
+            if ((Impact.bDirectWrite || bRestoreCompileCheck) && Package)
             {
                 // UE4.27 的 FiB 缓存不会在新建 Blueprint 的热重载中自动移除旧对象，
                 // 先同步 Asset Registry，避免新对象加载时覆盖仍有效的旧缓存条目。
-                if (!Preflight.ImpactPackages[Index].bExistsOnDisk)
+                if (Impact.bDirectWrite && !Impact.bExistsOnDisk)
                 {
                     TArray<UObject*> Assets;
                     GetObjectsWithOuter(Package, Assets, false, RF_Transient);
@@ -717,10 +777,11 @@ namespace CodexUnrealBlueprint
                     }
                 }
                 PackagesToReload.Add(Package);
+                ReloadedPackageNames.Add(PackageResult.PackageName);
             }
         }
         FText ReloadError;
-        if (PackagesToReload.Num() != Result.Packages.Num()
+        if (PackagesToReload.Num() == 0
             || !UPackageTools::ReloadPackages(PackagesToReload, ReloadError, EReloadPackagesInteractionMode::AssumePositive))
         {
             Result.bStateUnknown = true;
@@ -733,8 +794,9 @@ namespace CodexUnrealBlueprint
         for (int32 Index = 0; Index < Result.Packages.Num(); ++Index)
         {
             FWritePackageResult& PackageResult = Result.Packages[Index];
-            PackageResult.bReloaded = true;
-            if (!Preflight.ImpactPackages[Index].bExistsOnDisk)
+            const FImpactPackage& Impact = Preflight.ImpactPackages[Index];
+            PackageResult.bReloaded = ReloadedPackageNames.Contains(PackageResult.PackageName);
+            if (Impact.bDirectWrite && !Impact.bExistsOnDisk)
             {
                 if (UPackage* ReloadedPackage = FindPackage(nullptr, *PackageResult.PackageName))
                 {
@@ -750,6 +812,9 @@ namespace CodexUnrealBlueprint
                     ReloadedPackage->ClearPackageFlags(PKG_NewlyCreated);
                 }
             }
+            if (PackageResult.bReloaded)
+                Report(Progress, ++ReloadCompleted,
+                    ReloadedPackageNames.Num(), TEXT("Reloaded package."), PackageResult.PackageName);
         }
 
         if (!EnterPhase(Progress, TEXT("verify"), false, TEXT("Verifying reloaded package hashes and compile state."), Result.Error))
@@ -764,7 +829,7 @@ namespace CodexUnrealBlueprint
             FWritePackageResult& PackageResult = Result.Packages[Index];
             UPackage* Package = FindPackage(nullptr, *PackageResult.PackageName);
             FString HashError;
-            const FString ReloadedHash = ResolveHash(Request, PackageResult.PackageName, HashError);
+            const FString ReloadedHash = PackageResult.bDirectWrite ? ResolveHash(Request, PackageResult.PackageName, HashError) : FString();
             bool bBlueprintsValid = Package != nullptr && !Package->IsDirty();
             if (Package != nullptr)
             {
@@ -774,13 +839,12 @@ namespace CodexUnrealBlueprint
                 {
                     if (const UBlueprint* Blueprint = Cast<UBlueprint>(Object))
                     {
-                        bBlueprintsValid = bBlueprintsValid && Blueprint->IsUpToDate();
+                        if (PackageResult.bDirectWrite) bBlueprintsValid = bBlueprintsValid && Blueprint->IsUpToDate();
                     }
                 }
             }
-            PackageResult.bVerified = bBlueprintsValid
-                && !ReloadedHash.IsEmpty()
-                && ReloadedHash.Equals(PackageResult.SavedHash, ESearchCase::IgnoreCase);
+            PackageResult.bVerified = bBlueprintsValid && (!PackageResult.bDirectWrite
+                || (!ReloadedHash.IsEmpty() && ReloadedHash.Equals(PackageResult.SavedHash, ESearchCase::IgnoreCase)));
             if (!PackageResult.bVerified)
             {
                 bVerifyFailure = true;

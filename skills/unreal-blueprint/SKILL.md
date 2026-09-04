@@ -55,10 +55,12 @@ Specialized Editor inspection covers Blueprint/UMG/AnimBlueprint, AnimMontage se
 1. Call `unreal_status` or `unreal_doctor`, then select the exact `.uproject` and `editorSessionId`; never choose the first Editor when multiple sessions match.
 2. Call `unreal_search`, then `blueprint_capabilities` for the affected domain. The returned Operation Registry schema is authoritative; do not invent operation names or fields.
 3. Call `blueprint_inspect` or Editor-backed `unreal_asset_inspect` and retain every affected asset's structure hash.
-4. Call `blueprint_validate` with the complete one-shot operation list. Validation does not create a persistent plan and does not modify assets.
+4. Call `blueprint_validate` with a unique `requestId` and the complete one-shot operation list. It returns an in-memory `JobSnapshot`; use `blueprint_job wait` or `query` until terminal. Validation does not create a persistent plan and does not modify assets.
 5. For a write, create one unique `requestId` and call `blueprint_apply` exactly once. No confirmation dialog is required.
 6. Use `blueprint_job` to query or wait. Cancel only when the reported phase is cancellation-safe. If the connection becomes uncertain, query the same `requestId`; never replay the write.
-7. Finish with `blueprint_verify`, then optionally use `unreal_asset_compare` against the offline or online baseline.
+7. Finish with `blueprint_verify` using a new `requestId`, then wait for that read job and optionally use `unreal_asset_compare` against the offline or online baseline.
+
+`blueprint_inspect.structureHash` is the global `blueprint-structure-v1` hash and is safe to pass as an exact-asset `expectedStructureHashes` value regardless of requested facets or pagination. Use `componentQuery` for precise component/property reads. Prefer one atomic `component.cloneRange` for numbered homogeneous components and set creation-time values with `component.add.initialProperties`.
 
 A success claim requires the real Editor plugin result. Unknown operations or fields, ambiguous references, dirty packages, source-control rejection, protocol mismatch, missing Editor sessions, compile failures, and reload mismatches must remain explicit failures.
 

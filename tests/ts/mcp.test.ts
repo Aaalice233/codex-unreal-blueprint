@@ -34,15 +34,15 @@ describe("Codex stdio MCP server", () => {
         expect(tool.annotations).toMatchObject(toolAnnotations[tool.name as keyof typeof toolAnnotations]);
       }
       const status = await client.callTool({ name: "unreal_status", arguments: {} });
-      expect(status.structuredContent).toEqual({ result: { connected: false, ambiguous: false, sessions: [] } });
+      expect(status.structuredContent).toEqual({ result: { connected: false, ambiguous: false, sessions: [], staleSessions: [] } });
     } finally {
       await client.close();
     }
   });
 
   it("keeps operation schemas dynamic while rejecting unknown envelope fields", () => {
-    expect(toolSchemas.blueprint_validate.safeParse({ operations: [{ operation: "future.operation", futureField: true }] }).success).toBe(true);
-    expect(toolSchemas.blueprint_validate.safeParse({ operations: [{ operation: "future.operation" }], typo: true }).success).toBe(false);
+    expect(toolSchemas.blueprint_validate.safeParse({ requestId: "validate-1", operations: [{ operation: "future.operation", futureField: true }] }).success).toBe(true);
+    expect(toolSchemas.blueprint_validate.safeParse({ requestId: "validate-1", operations: [{ operation: "future.operation" }], typo: true }).success).toBe(false);
   });
 
   it("allows class-default inspection to select exact property paths", () => {
@@ -103,7 +103,7 @@ describe("Codex stdio MCP server", () => {
     const previous = process.env.LOCALAPPDATA;
     process.env.LOCALAPPDATA = testState;
     try {
-      await expect(invokeTool("unreal_status", {})).resolves.toEqual({ connected: false, ambiguous: false, sessions: [] });
+      await expect(invokeTool("unreal_status", {})).resolves.toEqual({ connected: false, ambiguous: false, sessions: [], staleSessions: [] });
     } finally {
       if (previous === undefined) delete process.env.LOCALAPPDATA;
       else process.env.LOCALAPPDATA = previous;

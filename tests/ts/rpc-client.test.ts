@@ -28,9 +28,12 @@ function session(port: number): EditorSession {
     port,
     authToken: "secret",
     pluginVersion: "1.0.0",
-    protocolVersion: "1.0.0",
+    protocolVersion: "2.0.0",
     capabilities: {},
     startedAt: new Date().toISOString(),
+    executablePath: "E:/UE_4.27/Engine/Binaries/Win64/UE4Editor.exe",
+    executableName: "UE4Editor.exe",
+    lastHeartbeatAt: new Date().toISOString(),
     descriptorPath: "fixture.json"
   };
 }
@@ -42,7 +45,7 @@ function handleSocket(socket: Socket): void {
       const request = parseRpcMessage(value);
       if (!("method" in request) || !("id" in request)) continue;
       const result = request.method === "session.authenticate"
-        ? { authenticated: true, protocolVersion: "1.0.0" }
+        ? { authenticated: true, protocolVersion: "2.0.0" }
         : { echoedMethod: request.method, params: request.params ?? {} };
       const response = encodeFrame({ jsonrpc: "2.0", id: request.id, result });
       socket.write(response.subarray(0, 3));
@@ -85,7 +88,7 @@ describe("RPC client", () => {
             jsonrpc: "2.0",
             id: request.id,
             ...(validToken
-              ? { result: { authenticated: true, protocolVersion: "1.0.0" } }
+              ? { result: { authenticated: true, protocolVersion: "2.0.0" } }
               : { error: { code: -32001, message: "Invalid authentication token", data: { stableCode: "AUTHENTICATION_FAILED" } } })
           }));
         }
@@ -97,7 +100,7 @@ describe("RPC client", () => {
   });
 
   it("rejects incompatible protocol majors before opening a socket", async () => {
-    const incompatible = { ...session(65_534), protocolVersion: "2.0.0" };
+    const incompatible = { ...session(65_534), protocolVersion: "1.0.0" };
     await expect(RpcClient.connect(incompatible)).rejects.toMatchObject({ code: "PROTOCOL_MISMATCH" });
   });
 
@@ -109,7 +112,7 @@ describe("RPC client", () => {
           const request = parseRpcMessage(value);
           if (!("method" in request) || !("id" in request)) continue;
           const result = request.method === "session.authenticate"
-            ? { authenticated: true, protocolVersion: "1.2.0" }
+            ? { authenticated: true, protocolVersion: "2.0.0" }
             : { method: request.method };
           const delay = request.method === "slow.request" ? 40 : 0;
           setTimeout(() => socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result })), delay);
@@ -120,7 +123,7 @@ describe("RPC client", () => {
     await expect(client.request("slow.request", {}, { timeoutMs: 10 }))
       .rejects.toMatchObject({ code: "REQUEST_TIMEOUT", retryable: true });
     await expect(client.request("unreal.status")).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
-    expect(client.negotiatedProtocolVersion).toBe("1.2.0");
+    expect(client.negotiatedProtocolVersion).toBe("2.0.0");
   });
 
   it("cancels an in-flight request through AbortSignal", async () => {
@@ -130,7 +133,7 @@ describe("RPC client", () => {
         for (const value of decoder.push(chunk)) {
           const request = parseRpcMessage(value);
           if (!("method" in request) || !("id" in request) || request.method !== "session.authenticate") continue;
-          socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "1.0.0" } }));
+          socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "2.0.0" } }));
         }
       });
     });
@@ -158,7 +161,7 @@ describe("RPC client", () => {
           const request = parseRpcMessage(value);
           if (!("method" in request) || !("id" in request)) continue;
           const result = request.method === "session.authenticate"
-            ? { authenticated: true, protocolVersion: "1.0.0" }
+            ? { authenticated: true, protocolVersion: "2.0.0" }
             : { split: true };
           const response = encodeFrame({ jsonrpc: "2.0", id: request.id, result });
           for (const byte of response) socket.write(Buffer.from([byte]));

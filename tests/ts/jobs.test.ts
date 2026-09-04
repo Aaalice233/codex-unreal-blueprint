@@ -19,6 +19,8 @@ afterEach(async () => {
 const snapshot = (phase: "Modify" | "Cancelled") => ({
   jobId: "job-1",
   requestId: "request-1",
+  method: "blueprint.apply",
+  durability: "journal",
   access: "write",
   phase,
   terminal: phase === "Cancelled",
@@ -38,7 +40,7 @@ describe("job client", () => {
           const request = parseRpcMessage(value);
           if (!("method" in request) || !("id" in request)) continue;
           if (request.method === "session.authenticate") {
-            socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "1.0.0" } }));
+            socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "2.0.0" } }));
             continue;
           }
           const action = request.params?.action;
@@ -66,7 +68,8 @@ describe("job client", () => {
     await writeFile(join(directory, "session.json"), JSON.stringify({
       editorSessionId: "jobs", pid: process.pid, uproject: "E:/Fixture.uproject", engineVersion: "4.27.2",
       host: "127.0.0.1", port: address.port, authToken: "token", pluginVersion: "0.1.0",
-      protocolVersion: "1.0.0", capabilities: {}, startedAt: new Date().toISOString()
+      protocolVersion: "2.0.0", capabilities: {}, startedAt: new Date().toISOString(),
+      executablePath: "E:/UE_4.27/Engine/Binaries/Win64/UE4Editor.exe", executableName: "UE4Editor.exe", lastHeartbeatAt: new Date().toISOString()
     }), "utf8");
 
     const client = await UnrealClient.connect({ session: { editorSessionId: "jobs" }, discovery: { sessionsDirectory: directory, isProcessAlive: () => true } });
@@ -93,7 +96,7 @@ describe("job client", () => {
           const request = parseRpcMessage(value);
           if (!("method" in request) || !("id" in request)) continue;
           if (request.method === "session.authenticate") {
-            socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "1.0.0" } }));
+            socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "2.0.0" } }));
           } else if (request.method === "blueprint.apply") {
             applyCount += 1;
             socket.destroy();
@@ -114,7 +117,8 @@ describe("job client", () => {
     await writeFile(join(directory, "session.json"), JSON.stringify({
       editorSessionId: "recovery", pid: process.pid, uproject: "E:/Fixture.uproject", engineVersion: "4.27.2",
       host: "127.0.0.1", port: address.port, authToken: "token", pluginVersion: "0.1.0",
-      protocolVersion: "1.0.0", capabilities: {}, startedAt: new Date().toISOString()
+      protocolVersion: "2.0.0", capabilities: {}, startedAt: new Date().toISOString(),
+      executablePath: "E:/UE_4.27/Engine/Binaries/Win64/UE4Editor.exe", executableName: "UE4Editor.exe", lastHeartbeatAt: new Date().toISOString()
     }), "utf8");
 
     await expect(invokeWriteWithRecovery(

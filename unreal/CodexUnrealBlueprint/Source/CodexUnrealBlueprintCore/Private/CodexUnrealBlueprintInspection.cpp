@@ -25,6 +25,17 @@ namespace CodexUnrealBlueprint
     {
         TSharedRef<FJsonObject> ErrorResult() { return MakeShared<FJsonObject>(); }
 
+        FString HashJson(const TSharedRef<FJsonObject>& Value)
+        {
+            FString Canonical;
+            TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Canonical);
+            FJsonSerializer::Serialize(Value, Writer);
+            FTCHARToUTF8 Utf8(*Canonical);
+            uint8 Digest[FSHA1::DigestSize];
+            FSHA1::HashBuffer(Utf8.Get(), Utf8.Length(), Digest);
+            return BytesToHex(Digest, FSHA1::DigestSize).ToLower();
+        }
+
         TSharedRef<FJsonObject> GraphSnapshot(UBlueprint* Blueprint)
         {
             TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -77,6 +88,50 @@ namespace CodexUnrealBlueprint
             Result->SetArrayField(TEXT("variables"), Values); return Result;
         }
 
+        bool BuildStructureSnapshot(UBlueprint* Blueprint, TSharedRef<FJsonObject>& Out, FProtocolError& OutError)
+        {
+            TSharedRef<FJsonObject> Asset = MakeShared<FJsonObject>();
+            Asset->SetStringField(TEXT("classPath"), Blueprint->GetClass()->GetPathName());
+            Asset->SetStringField(TEXT("parentClassPath"), Blueprint->ParentClass ? Blueprint->ParentClass->GetPathName() : FString());
+            Asset->SetStringField(TEXT("generatedClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : FString());
+            Out->SetObjectField(TEXT("asset"), Asset);
+            Out->SetObjectField(TEXT("variables"), VariableSnapshot(Blueprint));
+            const FBlueprintOperationResult Components = FBlueprintComponentOperations::List(Blueprint, true);
+            if (!Components.bSuccess)
+            {
+                OutError = FProtocolError::Make(EErrorCode::ValidationFailed,
+                    Components.Error.IsSet() ? Components.Error.GetValue().Message : TEXT("Component inspection failed."),
+                    TEXT("FBlueprintComponentOperations::List"));
+                OutError.AssetPath = Blueprint->GetPathName();
+                return false;
+            }
+            Out->SetObjectField(TEXT("components"), Components.Data);
+            Out->SetObjectField(TEXT("graphs"), GraphSnapshot(Blueprint));
+            if (UWidgetBlueprint* Widget = Cast<UWidgetBlueprint>(Blueprint))
+            {
+                TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>(); FUmgOperationError Error;
+                if (!FBlueprintUmgOperations::Inspect(Widget, Snapshot, Error))
+                {
+                    OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Error.Message, Error.UECallsite);
+                    OutError.AssetPath = Blueprint->GetPathName(); return false;
+                }
+                Snapshot->RemoveField(TEXT("snapshotHash"));
+                Out->SetObjectField(TEXT("umg"), Snapshot);
+            }
+            if (UAnimBlueprint* Anim = Cast<UAnimBlueprint>(Blueprint))
+            {
+                TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>(); FAnimOperationError Error;
+                if (!FBlueprintAnimOperations::Inspect(Anim, Snapshot, Error))
+                {
+                    OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Error.Message, Error.UECallsite);
+                    OutError.AssetPath = Blueprint->GetPathName(); return false;
+                }
+                Snapshot->RemoveField(TEXT("structureHash"));
+                Out->SetObjectField(TEXT("anim"), Snapshot);
+            }
+            return true;
+        }
+
         TSharedRef<FJsonObject> PaginateFacet(const TSharedRef<FJsonObject>& Full, const int32 Offset,
             const int32 Limit, bool& bOutHasMore)
         {
@@ -104,12 +159,19 @@ namespace CodexUnrealBlueprint
     bool FBlueprintInspection::Inspect(const FString& AssetPath, const TArray<FString>& Facets,
         const int32 Offset, const int32 Limit, TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError)
     {
-        return Inspect(AssetPath, Facets, {}, Offset, Limit, OutResult, OutError);
+        return Inspect(AssetPath, Facets, {}, TSharedPtr<FJsonObject>(), Offset, Limit, OutResult, OutError);
     }
 
     bool FBlueprintInspection::Inspect(const FString& AssetPath, const TArray<FString>& Facets,
         const TArray<FString>& ClassDefaultPropertyPaths, const int32 Offset, const int32 Limit,
         TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError)
+    {
+        return Inspect(AssetPath, Facets, ClassDefaultPropertyPaths, TSharedPtr<FJsonObject>(), Offset, Limit, OutResult, OutError);
+    }
+
+    bool FBlueprintInspection::Inspect(const FString& AssetPath, const TArray<FString>& Facets,
+        const TArray<FString>& ClassDefaultPropertyPaths, const TSharedPtr<FJsonObject>& ComponentQuery,
+        const int32 Offset, const int32 Limit, TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError)
     {
         if (!IsInGameThread()) { OutError = FProtocolError::Make(EErrorCode::InternalError, TEXT("Blueprint inspection must run on the game thread."), TEXT("FBlueprintInspection::Inspect")); return false; }
         UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath, nullptr, LOAD_NoWarn);
@@ -163,13 +225,26 @@ namespace CodexUnrealBlueprint
                 }
                 Data->SetObjectField(Facet, Defaults.Data);
             }
-            else if (Facet == TEXT("components")) { FBlueprintOperationResult Components = FBlueprintComponentOperations::List(Blueprint, true); if (!Components.bSuccess) { OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Components.Error.IsSet() ? Components.Error.GetValue().Message : TEXT("Component inspection failed."), TEXT("FBlueprintComponentOperations::List")); OutError.AssetPath = AssetPath; return false; } Data->SetObjectField(Facet, Components.Data); }
+            else if (Facet == TEXT("components")) { FBlueprintOperationResult Components = FBlueprintComponentOperations::List(Blueprint, true, ComponentQuery); if (!Components.bSuccess) { OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Components.Error.IsSet() ? Components.Error.GetValue().Message : TEXT("Component inspection failed."), TEXT("FBlueprintComponentOperations::List")); OutError.AssetPath = AssetPath; return false; } Data->SetObjectField(Facet, Components.Data); }
             else if (Facet == TEXT("graphs") || Facet == TEXT("nodes") || Facet == TEXT("pins")) Data->SetObjectField(Facet, GraphSnapshot(Blueprint));
             else if (Facet == TEXT("umg")) { UWidgetBlueprint* Widget = Cast<UWidgetBlueprint>(Blueprint); TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>(); FUmgOperationError Error; if (!Widget || !FBlueprintUmgOperations::Inspect(Widget, Snapshot, Error)) { OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Error.Message.IsEmpty() ? TEXT("The asset is not a Widget Blueprint.") : Error.Message, Error.UECallsite); OutError.AssetPath = AssetPath; return false; } Data->SetObjectField(Facet, Snapshot); }
             else if (Facet == TEXT("anim")) { UAnimBlueprint* Anim = Cast<UAnimBlueprint>(Blueprint); TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>(); FAnimOperationError Error; if (!Anim || !FBlueprintAnimOperations::Inspect(Anim, Snapshot, Error)) { OutError = FProtocolError::Make(EErrorCode::ValidationFailed, Error.Message.IsEmpty() ? TEXT("The asset is not an Animation Blueprint.") : Error.Message, Error.UECallsite); OutError.AssetPath = AssetPath; return false; } Data->SetObjectField(Facet, Snapshot); }
             else { OutError = FProtocolError::Make(EErrorCode::InvalidArgument, FString::Printf(TEXT("Unknown inspection facet '%s'."), *Facet), TEXT("FBlueprintInspection::Inspect")); OutError.AssetPath = AssetPath; return false; }
         }
-        FString Canonical; TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Canonical); FJsonSerializer::Serialize(Data, Writer); FTCHARToUTF8 Utf8(*Canonical); uint8 Digest[FSHA1::DigestSize]; FSHA1::HashBuffer(Utf8.Get(), Utf8.Length(), Digest);
+        FString StructureHash;
+        if (Blueprint)
+        {
+            TSharedRef<FJsonObject> Structure = MakeShared<FJsonObject>();
+            if (!BuildStructureSnapshot(Blueprint, Structure, OutError)) return false;
+            StructureHash = HashJson(Structure);
+        }
+        else StructureHash = HashJson(Data);
+        TSharedRef<FJsonObject> FacetHashes = MakeShared<FJsonObject>();
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Data->Values)
+        {
+            if (Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
+                FacetHashes->SetStringField(Pair.Key, HashJson(Pair.Value->AsObject().ToSharedRef()));
+        }
         TSharedRef<FJsonObject> PagedData = MakeShared<FJsonObject>();
         bool bHasMore = false;
         for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Data->Values)
@@ -183,10 +258,22 @@ namespace CodexUnrealBlueprint
             else PagedData->SetField(Pair.Key, Pair.Value);
         }
         Result->SetObjectField(TEXT("facets"), PagedData);
-        Result->SetStringField(TEXT("structureHash"), BytesToHex(Digest, FSHA1::DigestSize).ToLower());
+        Result->SetStringField(TEXT("structureHash"), StructureHash);
+        Result->SetStringField(TEXT("structureHashScope"), TEXT("blueprint-structure-v1"));
+        Result->SetObjectField(TEXT("facetHashes"), FacetHashes);
         Result->SetNumberField(TEXT("offset"), Offset);
         Result->SetNumberField(TEXT("limit"), Limit);
         if (bHasMore) Result->SetStringField(TEXT("nextCursor"), FString::FromInt(Offset + Limit));
         OutResult = Result; return true;
+    }
+
+    bool FBlueprintInspection::ComputeStructureHash(const FString& AssetPath, FString& OutHash, FProtocolError& OutError)
+    {
+        if (!IsInGameThread()) { OutError = FProtocolError::Make(EErrorCode::InternalError, TEXT("Blueprint hash must run on the game thread."), TEXT("FBlueprintInspection::ComputeStructureHash")); return false; }
+        UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath, nullptr, LOAD_NoWarn);
+        if (!Blueprint) { OutError = FProtocolError::Make(EErrorCode::AssetNotFound, TEXT("Blueprint was not found while computing structureHash."), TEXT("LoadObject<UBlueprint>")); OutError.AssetPath = AssetPath; return false; }
+        TSharedRef<FJsonObject> Structure = MakeShared<FJsonObject>();
+        if (!BuildStructureSnapshot(Blueprint, Structure, OutError)) return false;
+        OutHash = HashJson(Structure); return true;
     }
 }

@@ -8,6 +8,7 @@ export const JOB_PHASES = [
 
 export type JobPhase = (typeof JOB_PHASES)[number];
 export type JobAccess = "read" | "write";
+export type JobDurability = "memory" | "journal";
 
 export interface JobProgress {
   readonly jobId: string;
@@ -50,6 +51,8 @@ export interface RequestJournalStatus {
 export interface JobSnapshot {
   readonly jobId: string;
   readonly requestId: string;
+  readonly method: string;
+  readonly durability: JobDurability;
   readonly access: JobAccess;
   readonly phase: JobPhase;
   readonly terminal: boolean;
@@ -70,6 +73,8 @@ export function parseJobSnapshot(value: JsonValue): JobSnapshot {
   if (!isJsonObject(value)
     || typeof value.jobId !== "string"
     || typeof value.requestId !== "string"
+    || typeof value.method !== "string"
+    || (value.durability !== "memory" && value.durability !== "journal")
     || (value.access !== "read" && value.access !== "write")
     || !isPhase(value.phase)
     || typeof value.terminal !== "boolean"

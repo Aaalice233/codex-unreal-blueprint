@@ -5,6 +5,7 @@
 - [ ] Layered asset inspection verifies generic assets, Blueprint/UMG/AnimBlueprint, AnimMontage, Material/Material Instance, and Niagara System fixtures in Editor mode.
 - [ ] Bundled offline inspection, comparison, and bounded referencer search work without an Editor or any separately installed skill.
 - [ ] Automated tests cover session ambiguity, timeout, cancellation, `requestId` recovery, and partial-failure lists.
+- [ ] Protocol `2.0.0` validate/verify jobs, global structure hashes, package roles, component ranges/assertions, source-control semantics, and session heartbeats have automated coverage.
 - [ ] The UE4.27 Win64 plugin build and Automation tests pass.
 - [ ] Setup covers first/repeat install, Marketplace preservation, broken CLI, Editor occupancy, and managed boundaries.
 - [ ] Both release archives install from empty directories, four versions agree, and SHA-256 checks pass.

@@ -41,6 +41,8 @@ namespace CodexUnrealBlueprint
     {
         FString JobId;
         FString RequestId;
+        FString Method;
+        FString Durability = TEXT("memory");
         EJobAccess Access = EJobAccess::Read;
         EJobPhase Phase = EJobPhase::Queued;
         bool bTerminal = false;
@@ -109,6 +111,14 @@ namespace CodexUnrealBlueprint
         static constexpr int32 MaxQueuedJobs = 256;
 
         FString Start(EJobAccess Access, const FString& RequestId, FJobWork Work, FProtocolError* OutError = nullptr);
+        bool StartRead(
+            const FString& Method,
+            const FString& RequestId,
+            const TSharedPtr<FJsonObject>& Params,
+            FJobWork Work,
+            FJobSnapshot& OutSnapshot,
+            FProtocolError& OutError,
+            bool& bOutReplay);
         bool StartWrite(
             const FString& Method,
             const FString& RequestId,

@@ -20,8 +20,11 @@ namespace CodexUnrealBlueprint
         TArray<FString> TargetPackageNames;
         TArray<FString> AdditionalImpactPackageNames;
         TArray<FString> CompilePackageNames;
+        TMap<FString, TArray<int32>> OperationIndicesByPackage;
+        TMap<FString, TArray<FString>> ReferencedFromByPackage;
         TArray<FTypeReferenceRequirement> TypeReferences;
         TMap<FString, FString> ExpectedStateHashes;
+        TMap<FString, FString> ExpectedStructureHashes;
         TMap<FString, uint64> EstimatedNewPackageBytes;
         TFunction<bool(const FString& PackageName, FString& OutHash, FString& OutError)> StateHashResolver;
         TArray<FString> AllowedExternalPackageRoots;
@@ -39,6 +42,15 @@ namespace CodexUnrealBlueprint
         uint64 EstimatedWriteBytes = 0;
         FString BeforeHash;
         FString ExpectedHash;
+        FString AssetPath;
+        FString ActualStructureHash;
+        bool bStructureHashMatched = false;
+        bool bHasStructureExpectation = false;
+        bool bDirectWrite = false;
+        bool bCompileCheck = false;
+        bool bReferenceCheck = false;
+        TArray<int32> OperationIndices;
+        TArray<FString> ReferencedFrom;
         UPackage* Package = nullptr;
     };
 

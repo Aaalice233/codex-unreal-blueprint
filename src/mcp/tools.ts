@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { discoverSessions, invokeWriteWithRecovery, selectSession, withUnrealClient, type EditorSession, type SessionQuery } from "../client/index.js";
+import { discoverSessionState, discoverSessions, invokeWriteWithRecovery, selectSession, withUnrealClient, type EditorSession, type SessionQuery } from "../client/index.js";
 import { TOOL_NAMES, type ToolName } from "../shared/contracts.js";
 import { asUnrealBlueprintError, ERROR_CODES, UnrealBlueprintError } from "../shared/errors.js";
 import { assertJsonValue, isJsonObject, type JsonObject, type JsonValue } from "../shared/json.js";
@@ -14,6 +14,19 @@ const operationSchema = z.object({ operation: z.string().min(1) }).passthrough()
 const assetModeSchema = z.enum(["auto", "editor", "offline"]).optional();
 const assetFacetsSchema = z.array(z.enum(["support", "generic", "properties", "dependencies", "referencers", "specialized"])).max(16).optional();
 const propertyPathsSchema = z.array(z.string().min(1)).max(500).optional();
+const componentFieldsSchema = z.array(z.enum([
+  "variableName", "nodeGuid", "ownerBlueprintPath", "inherited", "componentClassPath",
+  "templatePath", "parentVariableName", "parentNodeGuid", "parentOwnerClassName", "root",
+  "relativeTransform", "properties"
+])).max(12).optional();
+const componentQuerySchema = z.object({
+  variableNames: z.array(z.string().min(1)).max(500).optional(),
+  variableNameRegex: z.string().min(1).max(256).optional(),
+  classPaths: z.array(z.string().min(1)).max(200).optional(),
+  inherited: z.boolean().optional(),
+  fields: componentFieldsSchema,
+  propertyPaths: z.array(z.string().min(1)).max(100).optional()
+}).strict().optional();
 const offlineStagingSchema = z.object({
   enabled: z.boolean().optional(),
   maxCachedAssets: z.number().int().min(1).max(512).optional()
@@ -84,11 +97,13 @@ export const toolSchemas = {
     assetPath: z.string().min(1),
     facets: z.array(z.string().min(1)).max(32).optional(),
     classDefaultPropertyPaths: z.array(z.string().min(1)).max(500).optional(),
+    componentQuery: componentQuerySchema,
     cursor: z.string().optional(),
     limit: z.number().int().min(1).max(500).optional()
   }).strict(),
   blueprint_validate: z.object({
     session: sessionSchema,
+    requestId: z.string().min(1).max(128),
     operations: z.array(operationSchema).min(1).max(500),
     expectedStructureHashes: jsonObjectSchema.optional()
   }).strict(),
@@ -107,6 +122,7 @@ export const toolSchemas = {
   ]),
   blueprint_verify: z.object({
     session: sessionSchema,
+    requestId: z.string().min(1).max(128),
     assetPaths: z.array(z.string().min(1)).min(1).max(200),
     expectations: z.array(jsonObjectSchema).max(500).optional(),
     compile: z.boolean().optional(),
@@ -123,10 +139,10 @@ export const toolDescriptions: Record<ToolName, string> = {
   unreal_asset_referencers: "Find precise Asset Registry referencers in Editor mode or serialized binary reference evidence in offline mode.",
   blueprint_capabilities: "Fetch strict operation parameter JSON Schemas and examples dynamically from the UE Operation Registry.",
   blueprint_inspect: "Read paged Blueprint facets, stable IDs, compile state, and structure hashes without modifying assets.",
-  blueprint_validate: "Validate a one-shot operation list in memory without changing assets.",
+  blueprint_validate: "Start a queryable read job that validates a one-shot operation list without changing assets.",
   blueprint_apply: "Start an automatic transactional Blueprint write job using one unique requestId; no plugin confirmation dialog.",
   blueprint_job: "Query, wait for, or safely cancel a job; requestId resolves an uncertain write without replaying it.",
-  blueprint_verify: "Independently compile, reload, and assert Blueprint disk structure."
+  blueprint_verify: "Start a queryable read job that independently reloads, compiles, and asserts Blueprint disk structure."
 };
 
 export const toolAnnotations = Object.fromEntries(TOOL_NAMES.map((name) => [name, {
@@ -239,7 +255,8 @@ export async function invokeTool(name: ToolName, parameters: unknown, signal?: A
   const { session, rpcParams } = splitParameters(parsed);
   if (ASSET_TOOL_NAMES.has(name)) return invokeLayeredAssetTool(name, rpcParams, session, signal);
   if (name === "unreal_status" && session.editorSessionId === undefined) {
-    const sessions = await discoverSessions(session, {}, signal);
+    const discovery = await discoverSessionState(session, {}, signal);
+    const sessions = discovery.sessions;
     if (sessions.length !== 1) {
       return {
         connected: false,
@@ -250,8 +267,12 @@ export async function invokeTool(name: ToolName, parameters: unknown, signal?: A
           uproject: candidate.uproject,
           engineVersion: candidate.engineVersion,
           pluginVersion: candidate.pluginVersion,
-          protocolVersion: candidate.protocolVersion
-        }))
+          protocolVersion: candidate.protocolVersion,
+          executablePath: candidate.executablePath,
+          executableName: candidate.executableName,
+          lastHeartbeatAt: candidate.lastHeartbeatAt
+        })),
+        staleSessions: discovery.staleSessions.map((candidate) => ({ ...candidate }))
       };
     }
     const selected = sessions[0] as EditorSession;
@@ -271,7 +292,10 @@ export async function invokeTool(name: ToolName, parameters: unknown, signal?: A
         uproject: selected.uproject,
         engineVersion: selected.engineVersion,
         pluginVersion: selected.pluginVersion,
-        protocolVersion: selected.protocolVersion
+        protocolVersion: selected.protocolVersion,
+        executablePath: selected.executablePath,
+        executableName: selected.executableName,
+        lastHeartbeatAt: selected.lastHeartbeatAt
       }
     };
   }

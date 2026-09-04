@@ -16,7 +16,24 @@ export interface EditorSession {
   readonly protocolVersion: string;
   readonly capabilities: JsonObject;
   readonly startedAt: string;
+  readonly executablePath: string;
+  readonly executableName: string;
+  readonly lastHeartbeatAt: string;
   readonly descriptorPath: string;
+}
+
+export interface StaleEditorSession {
+  readonly editorSessionId: string;
+  readonly pid: number;
+  readonly uproject: string;
+  readonly executableName: string;
+  readonly lastHeartbeatAt: string;
+  readonly reason: "process-exited" | "heartbeat-expired" | "unexpected-executable";
+}
+
+export interface SessionDiscoveryResult {
+  readonly sessions: EditorSession[];
+  readonly staleSessions: StaleEditorSession[];
 }
 
 export interface SessionQuery {
@@ -28,7 +45,10 @@ export interface DiscoveryOptions {
   readonly sessionsDirectory?: string;
   readonly isProcessAlive?: (pid: number) => boolean;
   readonly readSessionFile?: (descriptorPath: string) => Promise<string>;
+  readonly now?: () => number;
 }
+
+const MAX_HEARTBEAT_AGE_MS = 120_000;
 
 export function defaultSessionsDirectory(environment: NodeJS.ProcessEnv = process.env): string {
   const localAppData = environment.LOCALAPPDATA;
@@ -88,6 +108,8 @@ function parseSession(value: unknown, descriptorPath: string): EditorSession {
   if (!isJsonObject(value.capabilities)) throw new Error("capabilities must be an object");
   const startedAt = requireString(value, "startedAt");
   if (Number.isNaN(Date.parse(startedAt))) throw new Error("startedAt must be an ISO timestamp");
+  const lastHeartbeatAt = requireString(value, "lastHeartbeatAt");
+  if (Number.isNaN(Date.parse(lastHeartbeatAt))) throw new Error("lastHeartbeatAt must be an ISO timestamp");
   const editorSessionId = requireString(value, "editorSessionId");
   const uproject = requireString(value, "uproject");
   const authToken = requireString(value, "authToken");
@@ -107,6 +129,9 @@ function parseSession(value: unknown, descriptorPath: string): EditorSession {
     protocolVersion,
     capabilities: value.capabilities,
     startedAt,
+    executablePath: requireString(value, "executablePath"),
+    executableName: requireString(value, "executableName"),
+    lastHeartbeatAt,
     descriptorPath
   };
 }
@@ -114,7 +139,7 @@ function parseSession(value: unknown, descriptorPath: string): EditorSession {
 interface DiscoveryScan {
   readonly directory: string;
   readonly sessions: EditorSession[];
-  readonly stale: EditorSession[];
+  readonly stale: StaleEditorSession[];
   readonly invalid: string[];
   readonly descriptorCount: number;
 }
@@ -128,6 +153,7 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions, sign
   throwIfAborted(signal);
   const directory = options.sessionsDirectory ?? defaultSessionsDirectory();
   const alive = options.isProcessAlive ?? processIsAlive;
+  const now = options.now ?? Date.now;
   const readDescriptor = options.readSessionFile ?? ((path: string) => readFile(path, "utf8"));
   const canonicalQueryUproject = query.uproject === undefined ? undefined : canonicalizeUproject(query.uproject);
   let names: string[];
@@ -141,7 +167,7 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions, sign
   }
 
   const sessions: EditorSession[] = [];
-  const stale: EditorSession[] = [];
+  const stale: StaleEditorSession[] = [];
   const invalid: string[] = [];
   for (const name of names) {
     throwIfAborted(signal);
@@ -151,8 +177,22 @@ async function scanSessions(query: SessionQuery, options: DiscoveryOptions, sign
       throwIfAborted(signal);
       const session = parseSession(JSON.parse(descriptor), descriptorPath);
       if (!matchesQuery(session, query, canonicalQueryUproject)) continue;
-      if (!alive(session.pid)) {
-        stale.push(session);
+      const reason = !alive(session.pid)
+        ? "process-exited"
+        : session.executableName.toLowerCase() !== "ue4editor.exe"
+          ? "unexpected-executable"
+          : now() - Date.parse(session.lastHeartbeatAt) > MAX_HEARTBEAT_AGE_MS
+            ? "heartbeat-expired"
+            : undefined;
+      if (reason !== undefined) {
+        stale.push({
+          editorSessionId: session.editorSessionId,
+          pid: session.pid,
+          uproject: session.uproject,
+          executableName: session.executableName,
+          lastHeartbeatAt: session.lastHeartbeatAt,
+          reason
+        });
         continue;
       }
       sessions.push(session);
@@ -175,13 +215,23 @@ export async function discoverSessions(query: SessionQuery = {}, options: Discov
   return scan.sessions;
 }
 
+export async function discoverSessionState(query: SessionQuery = {}, options: DiscoveryOptions = {}, signal?: AbortSignal): Promise<SessionDiscoveryResult> {
+  const scan = await scanSessions(query, options, signal);
+  if (scan.sessions.length === 0 && scan.invalid.length > 0 && scan.invalid.length === scan.descriptorCount) {
+    throw new UnrealBlueprintError(ERROR_CODES.SESSION_INVALID, "No valid Unreal Editor session descriptors were found", {
+      context: { details: { directory: scan.directory, invalid: scan.invalid } }
+    });
+  }
+  return { sessions: scan.sessions, staleSessions: scan.stale };
+}
+
 export async function selectSession(query: SessionQuery = {}, options: DiscoveryOptions = {}, signal?: AbortSignal): Promise<EditorSession> {
   const scan = await scanSessions(query, options, signal);
   if (scan.sessions.length === 0) {
     if (scan.stale.length > 0) {
-      throw new UnrealBlueprintError(ERROR_CODES.SESSION_STALE, "Matching Unreal Editor session descriptors refer to exited processes", {
+      throw new UnrealBlueprintError(ERROR_CODES.SESSION_STALE, "Matching Unreal Editor session descriptors are stale or fail executable identity checks", {
         retryable: true,
-        context: { details: { editorSessionIds: scan.stale.map((session) => session.editorSessionId) } }
+        context: { details: { sessions: scan.stale.map((session) => ({ ...session })) } }
       });
     }
     if (scan.invalid.length > 0 && scan.invalid.length === scan.descriptorCount) {
@@ -207,7 +257,10 @@ export async function selectSession(query: SessionQuery = {}, options: Discovery
               editorSessionId: session.editorSessionId,
               pid: session.pid,
               uproject: session.uproject,
-              startedAt: session.startedAt
+              startedAt: session.startedAt,
+              executablePath: session.executablePath,
+              executableName: session.executableName,
+              lastHeartbeatAt: session.lastHeartbeatAt
             }))
           }
         }

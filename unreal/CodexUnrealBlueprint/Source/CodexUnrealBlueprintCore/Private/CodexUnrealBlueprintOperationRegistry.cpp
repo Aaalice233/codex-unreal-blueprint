@@ -4,7 +4,9 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Animation/AnimBlueprint.h"
 #include "WidgetBlueprint.h"
+#include "Components/ActorComponent.h"
 #include "Engine/Blueprint.h"
+#include "Engine/SimpleConstructionScript.h"
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/World.h"
 #include "Engine/UserDefinedStruct.h"
@@ -292,17 +294,18 @@ namespace CodexUnrealBlueprint
         }
 
         void AddPackageImpact(const FString& ObjectOrPackagePath, const bool bCompile,
-            FPreflightRequest& Request, TArray<FString>* OutPackageNames = nullptr)
+            FPreflightRequest& Request, const int32 OperationIndex, TArray<FString>* OutPackageNames = nullptr)
         {
             const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectOrPackagePath);
             if (!FPackageName::IsValidLongPackageName(PackageName, true)) return;
             Request.TargetPackageNames.AddUnique(PackageName);
+            Request.OperationIndicesByPackage.FindOrAdd(PackageName).AddUnique(OperationIndex);
             if (bCompile) Request.CompilePackageNames.AddUnique(PackageName);
             if (OutPackageNames) OutPackageNames->AddUnique(PackageName);
         }
 
         void AddReferencerImpacts(const FString& ObjectOrPackagePath, FPreflightRequest& Request,
-            TArray<FString>* OutPackageNames = nullptr)
+            const int32 OperationIndex, TArray<FString>* OutPackageNames = nullptr)
         {
             const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectOrPackagePath);
             if (!FPackageName::IsValidLongPackageName(PackageName, true)) return;
@@ -312,7 +315,18 @@ namespace CodexUnrealBlueprint
                 UE::AssetRegistry::EDependencyCategory::Package);
             for (const FName Referencer : Referencers)
             {
-                AddPackageImpact(Referencer.ToString(), true, Request, OutPackageNames);
+                const FString ReferencerPackage = Referencer.ToString();
+                Request.AdditionalImpactPackageNames.AddUnique(ReferencerPackage);
+                Request.OperationIndicesByPackage.FindOrAdd(ReferencerPackage).AddUnique(OperationIndex);
+                Request.ReferencedFromByPackage.FindOrAdd(ReferencerPackage).AddUnique(ObjectOrPackagePath);
+                TArray<FAssetData> Assets;
+                RegistryModule.Get().GetAssetsByPackageName(Referencer, Assets, true);
+                const bool bBlueprintPackage = Assets.ContainsByPredicate([](const FAssetData& Asset)
+                {
+                    return Asset.AssetClass.ToString().Contains(TEXT("Blueprint"));
+                });
+                if (bBlueprintPackage) Request.CompilePackageNames.AddUnique(ReferencerPackage);
+                if (OutPackageNames) OutPackageNames->AddUnique(ReferencerPackage);
             }
         }
 
@@ -337,20 +351,36 @@ namespace CodexUnrealBlueprint
             return !Out.VariableName.IsNone() || Out.NodeGuid.IsValid();
         }
 
+        bool ParseVectorField(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field, FVector& Out)
+        {
+            FString Text;
+            if (Json->TryGetStringField(Field, Text)) return Out.InitFromString(Text);
+            const TSharedPtr<FJsonObject>* Value = nullptr;
+            double X = 0.0, Y = 0.0, Z = 0.0;
+            return Json->TryGetObjectField(Field, Value) && Value && (*Value)->TryGetNumberField(TEXT("x"), X)
+                && (*Value)->TryGetNumberField(TEXT("y"), Y) && (*Value)->TryGetNumberField(TEXT("z"), Z)
+                && (Out = FVector(X, Y, Z), true);
+        }
+
+        bool ParseRotationField(const TSharedPtr<FJsonObject>& Json, FRotator& Out)
+        {
+            FString Text;
+            if (Json->TryGetStringField(TEXT("rotation"), Text)) return Out.InitFromString(Text);
+            const TSharedPtr<FJsonObject>* Value = nullptr;
+            double Pitch = 0.0, Yaw = 0.0, Roll = 0.0;
+            return Json->TryGetObjectField(TEXT("rotation"), Value) && Value
+                && (*Value)->TryGetNumberField(TEXT("pitch"), Pitch) && (*Value)->TryGetNumberField(TEXT("yaw"), Yaw)
+                && (*Value)->TryGetNumberField(TEXT("roll"), Roll) && (Out = FRotator(Pitch, Yaw, Roll), true);
+        }
+
         bool ParseTransform(const TSharedPtr<FJsonObject>& Json, FTransform& Out)
         {
             if (!Json.IsValid()) return false;
-            FString Location;
-            FString Rotation;
-            FString Scale;
-            if (!Json->TryGetStringField(TEXT("location"), Location)
-                || !Json->TryGetStringField(TEXT("rotation"), Rotation)
-                || !Json->TryGetStringField(TEXT("scale"), Scale)) return false;
             FVector Translation;
             FRotator Rotator;
             FVector Scale3D;
-            if (!Translation.InitFromString(Location) || !Rotator.InitFromString(Rotation)
-                || !Scale3D.InitFromString(Scale)) return false;
+            if (!ParseVectorField(Json, TEXT("location"), Translation) || !ParseRotationField(Json, Rotator)
+                || !ParseVectorField(Json, TEXT("scale"), Scale3D)) return false;
             Out = FTransform(Rotator, Translation, Scale3D);
             return true;
         }
@@ -379,11 +409,11 @@ namespace CodexUnrealBlueprint
                 FString Path;
                 if (Operation->TryGetStringField(OperationName == TEXT("asset.create") ? TEXT("packagePath") : TEXT("assetPath"), Path))
                 {
-                    AddPackageImpact(Path, OperationName != TEXT("asset.delete"), Request);
+                    AddPackageImpact(Path, OperationName != TEXT("asset.delete"), Request, Index);
                     if (OperationName != TEXT("asset.create") && RequiresReferencerImpacts(OperationName))
-                        AddReferencerImpacts(Path, Request);
+                        AddReferencerImpacts(Path, Request, Index);
                 }
-                if (Operation->TryGetStringField(TEXT("destinationPath"), Path)) AddPackageImpact(Path, true, Request);
+                if (Operation->TryGetStringField(TEXT("destinationPath"), Path)) AddPackageImpact(Path, true, Request, Index);
 
                 FString ReferencePath;
                 FString ExpectedClassPath;
@@ -420,13 +450,13 @@ namespace CodexUnrealBlueprint
                 FPreflightRequest RuntimeImpacts;
                 if (!AssetPath.IsEmpty())
                 {
-                    AddPackageImpact(AssetPath, Name != TEXT("asset.delete"), RuntimeImpacts, &ImpactPackageNames);
+                    AddPackageImpact(AssetPath, Name != TEXT("asset.delete"), RuntimeImpacts, Index, &ImpactPackageNames);
                     if (RequiresReferencerImpacts(Name))
-                        AddReferencerImpacts(AssetPath, RuntimeImpacts, &ImpactPackageNames);
+                        AddReferencerImpacts(AssetPath, RuntimeImpacts, Index, &ImpactPackageNames);
                 }
                 FString DestinationPath;
                 if (Operation->TryGetStringField(TEXT("destinationPath"), DestinationPath))
-                    AddPackageImpact(DestinationPath, true, RuntimeImpacts, &ImpactPackageNames);
+                    AddPackageImpact(DestinationPath, true, RuntimeImpacts, Index, &ImpactPackageNames);
 
                 if (Name.StartsWith(TEXT("anim.")))
                 {
@@ -533,6 +563,7 @@ namespace CodexUnrealBlueprint
                     else { OutError.Code = TEXT("OPERATION_FAILED"); OutError.Message = TEXT("Operation failed without structured error."); OutError.OperationIndex = Index; OutError.UECallsite = TEXT("FRegistryWriteOperation::Apply"); }
                     return false;
                 }
+                Context.RecordOperationResult(Index, Result.Data);
                 for (const FString& AffectedPath : Result.AffectedAssets)
                 {
                     const FString PackageName = FPackageName::ObjectPathToPackageName(AffectedPath);
@@ -583,20 +614,46 @@ namespace CodexUnrealBlueprint
             {
                 const TSharedPtr<FJsonObject>* RefJson = nullptr;
                 FComponentReference Ref;
-                if (Name != TEXT("component.add") && (!Operation->TryGetObjectField(TEXT("component"), RefJson) || !ParseComponentReference(*RefJson, Ref)))
+                if (Name != TEXT("component.add") && Name != TEXT("component.cloneRange")
+                    && (!Operation->TryGetObjectField(TEXT("component"), RefJson) || !ParseComponentReference(*RefJson, Ref)))
                     return FBlueprintOperationResult::Failure(TEXT("COMPONENT_REFERENCE_INVALID"), TEXT("component must identify variableName or nodeGuid."), Blueprint ? Blueprint->GetPathName() : FString(), Index, TEXT("ParseComponentReference"));
                 if (Name == TEXT("component.add"))
                 {
                     FString ClassPath, VariableName; Operation->TryGetStringField(TEXT("classPath"), ClassPath); Operation->TryGetStringField(TEXT("variableName"), VariableName);
                     FTransform Transform = FTransform::Identity; const TSharedPtr<FJsonObject>* TransformJson = nullptr; if (Operation->TryGetObjectField(TEXT("transform"), TransformJson)) ParseTransform(*TransformJson, Transform);
                     TOptional<FComponentReference> Parent; const TSharedPtr<FJsonObject>* ParentJson = nullptr; FComponentReference ParentValue; if (Operation->TryGetObjectField(TEXT("parent"), ParentJson) && ParseComponentReference(*ParentJson, ParentValue)) Parent = ParentValue;
-                    return FBlueprintComponentOperations::Add(Blueprint, LoadExactClass(ClassPath), FName(*VariableName), Parent, Transform, Index);
+                    FBlueprintOperationResult Added = FBlueprintComponentOperations::Add(Blueprint, LoadExactClass(ClassPath), FName(*VariableName), Parent, Transform, Index);
+                    const TSharedPtr<FJsonObject>* InitialProperties = nullptr;
+                    if (Added.bSuccess && Operation->TryGetObjectField(TEXT("initialProperties"), InitialProperties) && InitialProperties)
+                    {
+                        FComponentReference AddedRef; AddedRef.VariableName = FName(*VariableName);
+                        for (const TPair<FString, TSharedPtr<FJsonValue>>& Property : (*InitialProperties)->Values)
+                        {
+                            FBlueprintOperationResult Set = FBlueprintComponentOperations::SetProperty(Blueprint, AddedRef,
+                                Property.Key, Property.Value, false, Index);
+                            if (!Set.bSuccess) return Set;
+                        }
+                    }
+                    return Added;
+                }
+                if (Name == TEXT("component.cloneRange"))
+                {
+                    const TSharedPtr<FJsonObject>* SourceJson = nullptr; FComponentReference Source;
+                    FString Pattern; double Start = 0.0, End = -1.0; const TSharedPtr<FJsonObject>* Overrides = nullptr;
+                    if (!Operation->TryGetObjectField(TEXT("sourceComponent"), SourceJson) || !ParseComponentReference(*SourceJson, Source)
+                        || !Operation->TryGetStringField(TEXT("targetPattern"), Pattern)
+                        || !Operation->TryGetNumberField(TEXT("startIndex"), Start) || !Operation->TryGetNumberField(TEXT("endIndex"), End))
+                        return FBlueprintOperationResult::Failure(TEXT("COMPONENT_CLONE_RANGE_INVALID"), TEXT("cloneRange fields are invalid."),
+                            Blueprint ? Blueprint->GetPathName() : FString(), Index, TEXT("FRegistryWriteOperation::ApplyComponent"));
+                    Operation->TryGetObjectField(TEXT("propertyOverrides"), Overrides);
+                    return FBlueprintComponentOperations::CloneRange(Blueprint, Source, Pattern, static_cast<int32>(Start),
+                        static_cast<int32>(End), Overrides ? *Overrides : nullptr, Index);
                 }
                 if (Name == TEXT("component.remove")) { bool Value = false; Operation->TryGetBoolField(TEXT("promoteChildren"), Value); return FBlueprintComponentOperations::Remove(Blueprint, Ref, Value, Index); }
                 if (Name == TEXT("component.rename")) { FString Value; Operation->TryGetStringField(TEXT("newName"), Value); return FBlueprintComponentOperations::Rename(Blueprint, Ref, FName(*Value), Index); }
                 if (Name == TEXT("component.attach")) { TOptional<FComponentReference> Parent; const TSharedPtr<FJsonObject>* Json = nullptr; FComponentReference Value; if (Operation->TryGetObjectField(TEXT("parent"), Json) && ParseComponentReference(*Json, Value)) Parent = Value; return FBlueprintComponentOperations::Attach(Blueprint, Ref, Parent, Index); }
                 if (Name == TEXT("component.root.set")) return FBlueprintComponentOperations::SetRoot(Blueprint, Ref, Index);
-                if (Name == TEXT("component.transform.set")) { const TSharedPtr<FJsonObject>* Json = nullptr; FTransform Value; if (!Operation->TryGetObjectField(TEXT("transform"), Json) || !ParseTransform(*Json, Value)) return FBlueprintOperationResult::Failure(TEXT("TRANSFORM_INVALID"), TEXT("transform requires UE location, rotation, and scale strings."), Blueprint ? Blueprint->GetPathName() : FString(), Index, TEXT("ParseTransform")); return FBlueprintComponentOperations::SetTransform(Blueprint, Ref, Value, Index); }
+                if (Name == TEXT("component.transform.set")) { const TSharedPtr<FJsonObject>* Json = nullptr; FTransform Value; if (!Operation->TryGetObjectField(TEXT("transform"), Json) || !ParseTransform(*Json, Value)) return FBlueprintOperationResult::Failure(TEXT("TRANSFORM_INVALID"), TEXT("transform requires location/scale as Unreal text or {x,y,z}, and rotation as Unreal text or {pitch,yaw,roll}."), Blueprint ? Blueprint->GetPathName() : FString(), Index, TEXT("ParseTransform")); return FBlueprintComponentOperations::SetTransform(Blueprint, Ref, Value, Index); }
                 if (Name == TEXT("component.property.set")) { FString Path; bool Override = false; Operation->TryGetStringField(TEXT("propertyPath"), Path); Operation->TryGetBoolField(TEXT("createInheritedOverride"), Override); return FBlueprintComponentOperations::SetProperty(Blueprint, Ref, Path, Operation->TryGetField(TEXT("value")), Override, Index); }
                 return FBlueprintComponentOperations::ClearInheritedOverride(Blueprint, Ref, Index);
             }
@@ -685,7 +742,8 @@ namespace CodexUnrealBlueprint
         Add(TEXT("asset.create"), TEXT("asset"), {});
         CODEX_ADD("asset.duplicate", "asset", {TEXT("destinationPath"), EFieldKind::String, true}); CODEX_ADD("asset.rename", "asset", {TEXT("destinationPath"), EFieldKind::String, true}); CODEX_ADD("asset.delete", "asset");
         CODEX_ADD("asset.parent.set", "asset", {TEXT("parentClassPath"), EFieldKind::String, true}); CODEX_ADD("asset.interface.add", "asset", {TEXT("interfaceClassPath"), EFieldKind::String, true}); CODEX_ADD("asset.interface.remove", "asset", {TEXT("interfaceClassPath"), EFieldKind::String, true}, {TEXT("preserveFunctions"), EFieldKind::Boolean, false}); CODEX_ADD("asset.redirector.fix", "asset"); CODEX_ADD("asset.levelBlueprint.getOrCreate", "asset"); CODEX_ADD("asset.classDefault.set", "asset", {TEXT("propertyPath"), EFieldKind::String, true}, {TEXT("value"), EFieldKind::Any, true});
-        CODEX_ADD("component.add", "component", {TEXT("classPath"), EFieldKind::String, true}, {TEXT("variableName"), EFieldKind::String, true}, {TEXT("parent"), EFieldKind::Object, false}, {TEXT("transform"), EFieldKind::Object, false});
+        CODEX_ADD("component.add", "component", {TEXT("classPath"), EFieldKind::String, true}, {TEXT("variableName"), EFieldKind::String, true}, {TEXT("parent"), EFieldKind::Object, false}, {TEXT("transform"), EFieldKind::Object, false}, {TEXT("initialProperties"), EFieldKind::Object, false});
+        CODEX_ADD("component.cloneRange", "component", {TEXT("sourceComponent"), EFieldKind::Object, true}, {TEXT("targetPattern"), EFieldKind::String, true}, {TEXT("startIndex"), EFieldKind::Number, true}, {TEXT("endIndex"), EFieldKind::Number, true}, {TEXT("propertyOverrides"), EFieldKind::Object, false});
         CODEX_ADD("component.remove", "component", {TEXT("component"), EFieldKind::Object, true}, {TEXT("promoteChildren"), EFieldKind::Boolean, false}); CODEX_ADD("component.rename", "component", {TEXT("component"), EFieldKind::Object, true}, {TEXT("newName"), EFieldKind::String, true}); CODEX_ADD("component.attach", "component", {TEXT("component"), EFieldKind::Object, true}, {TEXT("parent"), EFieldKind::Object, false}); CODEX_ADD("component.root.set", "component", {TEXT("component"), EFieldKind::Object, true}); CODEX_ADD("component.transform.set", "component", {TEXT("component"), EFieldKind::Object, true}, {TEXT("transform"), EFieldKind::Object, true}); CODEX_ADD("component.property.set", "component", {TEXT("component"), EFieldKind::Object, true}, {TEXT("propertyPath"), EFieldKind::String, true}, {TEXT("value"), EFieldKind::Any, true}, {TEXT("createInheritedOverride"), EFieldKind::Boolean, false}); CODEX_ADD("component.override.clear", "component", {TEXT("component"), EFieldKind::Object, true});
         const TArray<FFieldSpec> VariableFields = {{TEXT("name"), EFieldKind::String, true}, {TEXT("type"), EFieldKind::Object, true}, {TEXT("default"), EFieldKind::Any, false}, {TEXT("category"), EFieldKind::String, false}, {TEXT("tooltip"), EFieldKind::String, false}, {TEXT("metadata"), EFieldKind::Object, false}, {TEXT("instanceEditable"), EFieldKind::Boolean, false}, {TEXT("exposeOnSpawn"), EFieldKind::Boolean, false}, {TEXT("private"), EFieldKind::Boolean, false}, {TEXT("saveGame"), EFieldKind::Boolean, false}, {TEXT("advancedDisplay"), EFieldKind::Boolean, false}, {TEXT("transient"), EFieldKind::Boolean, false}, {TEXT("replicated"), EFieldKind::Boolean, false}, {TEXT("repNotify"), EFieldKind::Boolean, false}, {TEXT("repNotifyFunction"), EFieldKind::String, false}};
         Add(TEXT("variable.add"), TEXT("type"), VariableFields);
@@ -809,6 +867,8 @@ namespace CodexUnrealBlueprint
             StringEnumSchema({TEXT("string"), TEXT("object"), TEXT("text")}));
         SetFieldSchema(Definitions, TEXT("enum.value.rename"), TEXT("valueIndex"), IntegerSchema(0));
         SetFieldSchema(Definitions, TEXT("enum.value.remove"), TEXT("valueIndex"), IntegerSchema(0));
+        SetFieldSchema(Definitions, TEXT("component.cloneRange"), TEXT("startIndex"), IntegerSchema());
+        SetFieldSchema(Definitions, TEXT("component.cloneRange"), TEXT("endIndex"), IntegerSchema());
         SetFieldSchema(Definitions, TEXT("widget.add"), TEXT("childIndex"), IntegerSchema(0));
         SetFieldSchema(Definitions, TEXT("widget.reparent"), TEXT("childIndex"), IntegerSchema(0));
         SetFieldSchema(Definitions, TEXT("binding.set"), TEXT("kind"),
@@ -863,10 +923,32 @@ namespace CodexUnrealBlueprint
         ComponentIdentityChoices.Add(MakeShared<FJsonValueObject>(ByGuid));
         ComponentReferenceSchema->SetArrayField(TEXT("anyOf"), ComponentIdentityChoices);
 
+        auto NumericObject = [](const TArray<FString>& Names) -> TSharedRef<FJsonObject>
+        {
+            TMap<FString, TSharedPtr<FJsonValue>> Properties;
+            for (const FString& Name : Names) Properties.Add(Name, MakeShared<FJsonValueObject>(TypeSchema(EFieldKind::Number)));
+            TSharedRef<FJsonObject> Schema = TypeSchema(EFieldKind::Object);
+            TSharedRef<FJsonObject> PropertiesJson = MakeShared<FJsonObject>();
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Properties) PropertiesJson->SetField(Pair.Key, Pair.Value);
+            Schema->SetObjectField(TEXT("properties"), PropertiesJson);
+            TArray<TSharedPtr<FJsonValue>> Required;
+            for (const FString& Name : Names) Required.Add(MakeShared<FJsonValueString>(Name));
+            Schema->SetArrayField(TEXT("required"), Required);
+            Schema->SetBoolField(TEXT("additionalProperties"), false);
+            return Schema;
+        };
+        auto TextOrObject = [](const TSharedRef<FJsonObject>& ObjectSchema) -> TSharedRef<FJsonObject>
+        {
+            TSharedRef<FJsonObject> Schema = MakeShared<FJsonObject>();
+            Schema->SetArrayField(TEXT("oneOf"), {MakeShared<FJsonValueObject>(NonEmptyStringSchema()), MakeShared<FJsonValueObject>(ObjectSchema)});
+            return Schema;
+        };
         TMap<FString, TSharedPtr<FJsonValue>> TransformProperties;
-        TransformProperties.Add(TEXT("location"), MakeShared<FJsonValueObject>(NonEmptyStringSchema()));
-        TransformProperties.Add(TEXT("rotation"), MakeShared<FJsonValueObject>(NonEmptyStringSchema()));
-        TransformProperties.Add(TEXT("scale"), MakeShared<FJsonValueObject>(NonEmptyStringSchema()));
+        const TSharedRef<FJsonObject> VectorSchema = NumericObject({TEXT("x"), TEXT("y"), TEXT("z")});
+        const TSharedRef<FJsonObject> RotationSchema = NumericObject({TEXT("pitch"), TEXT("yaw"), TEXT("roll")});
+        TransformProperties.Add(TEXT("location"), MakeShared<FJsonValueObject>(TextOrObject(VectorSchema)));
+        TransformProperties.Add(TEXT("rotation"), MakeShared<FJsonValueObject>(TextOrObject(RotationSchema)));
+        TransformProperties.Add(TEXT("scale"), MakeShared<FJsonValueObject>(TextOrObject(VectorSchema)));
         TSharedRef<FJsonObject> TransformSchema = ExactObjectSchema(TransformProperties,
             {TEXT("location"), TEXT("rotation"), TEXT("scale")});
         for (TPair<FString, FOperationDefinition>& Pair : Definitions)
@@ -874,6 +956,7 @@ namespace CodexUnrealBlueprint
             const TSharedPtr<FJsonObject>* Properties = nullptr;
             if (!Pair.Value.Schema->TryGetObjectField(TEXT("properties"), Properties) || !Properties) continue;
             if ((*Properties)->HasField(TEXT("component"))) (*Properties)->SetObjectField(TEXT("component"), ComponentReferenceSchema);
+            if ((*Properties)->HasField(TEXT("sourceComponent"))) (*Properties)->SetObjectField(TEXT("sourceComponent"), ComponentReferenceSchema);
             if ((*Properties)->HasField(TEXT("parent")) && Pair.Value.Domain == TEXT("component"))
                 (*Properties)->SetObjectField(TEXT("parent"), ComponentReferenceSchema);
             if ((*Properties)->HasField(TEXT("transform"))) (*Properties)->SetObjectField(TEXT("transform"), TransformSchema);
@@ -1009,6 +1092,64 @@ namespace CodexUnrealBlueprint
                     TEXT("FOperationRegistry::Validate"), Index);
                 return false;
             }
+            if (Name == TEXT("component.add"))
+            {
+                FString AssetPath, ClassPath, VariableName;
+                Operations[Index]->TryGetStringField(TEXT("assetPath"), AssetPath);
+                Operations[Index]->TryGetStringField(TEXT("classPath"), ClassPath);
+                Operations[Index]->TryGetStringField(TEXT("variableName"), VariableName);
+                UBlueprint* Blueprint = Cast<UBlueprint>(LoadExactObject(AssetPath));
+                UClass* ComponentClass = LoadExactClass(ClassPath);
+                if (Blueprint && ComponentClass && ComponentClass->IsChildOf(UActorComponent::StaticClass())
+                    && Blueprint->SimpleConstructionScript && Blueprint->SimpleConstructionScript->FindSCSNode(FName(*VariableName)))
+                {
+                    OutError = OperationError(EErrorCode::ValidationFailed, FString::Printf(TEXT("Component '%s' already exists."), *VariableName),
+                        TEXT("USimpleConstructionScript::FindSCSNode"), Index, AssetPath); return false;
+                }
+                const TSharedPtr<FJsonObject>* TransformJson = nullptr; FTransform Transform;
+                if (Operations[Index]->TryGetObjectField(TEXT("transform"), TransformJson) && !ParseTransform(*TransformJson, Transform))
+                {
+                    OutError = OperationError(EErrorCode::TypeMismatch, TEXT("Invalid transform at operations[].transform; use location/scale {x,y,z} and rotation {pitch,yaw,roll}, or Unreal text."),
+                        TEXT("ParseTransform"), Index, AssetPath); return false;
+                }
+                const TSharedPtr<FJsonObject>* InitialProperties = nullptr;
+                if (Blueprint && ComponentClass && ComponentClass->IsChildOf(UActorComponent::StaticClass())
+                    && Operations[Index]->TryGetObjectField(TEXT("initialProperties"), InitialProperties) && InitialProperties)
+                {
+                    UActorComponent* Scratch = DuplicateObject<UActorComponent>(Cast<UActorComponent>(ComponentClass->GetDefaultObject()), GetTransientPackage());
+                    for (const TPair<FString, TSharedPtr<FJsonValue>>& Property : (*InitialProperties)->Values)
+                    {
+                        FBlueprintOperationError Error;
+                        if (!Scratch || !FBlueprintTypeSystem::SetPropertyValue(Scratch, Property.Key, Property.Value, Error, AssetPath, Index))
+                        {
+                            OutError = OperationError(EErrorCode::ValidationFailed, Error.Message.IsEmpty() ? TEXT("initialProperties contains an invalid property or value.") : Error.Message,
+                                Error.UECallsite.IsEmpty() ? TEXT("FBlueprintTypeSystem::SetPropertyValue") : Error.UECallsite, Index, AssetPath); return false;
+                        }
+                    }
+                }
+            }
+            if (Name == TEXT("component.cloneRange"))
+            {
+                FString AssetPath, Pattern; double Start = 0.0, End = -1.0;
+                const TSharedPtr<FJsonObject>* SourceJson = nullptr; FComponentReference Source;
+                const TSharedPtr<FJsonObject>* Overrides = nullptr;
+                Operations[Index]->TryGetStringField(TEXT("assetPath"), AssetPath);
+                Operations[Index]->TryGetStringField(TEXT("targetPattern"), Pattern);
+                Operations[Index]->TryGetNumberField(TEXT("startIndex"), Start);
+                Operations[Index]->TryGetNumberField(TEXT("endIndex"), End);
+                Operations[Index]->TryGetObjectField(TEXT("sourceComponent"), SourceJson);
+                Operations[Index]->TryGetObjectField(TEXT("propertyOverrides"), Overrides);
+                FBlueprintOperationResult Semantic = FBlueprintComponentOperations::ValidateCloneRange(
+                    Cast<UBlueprint>(LoadExactObject(AssetPath)), SourceJson && ParseComponentReference(*SourceJson, Source) ? Source : FComponentReference(),
+                    Pattern, static_cast<int32>(Start), static_cast<int32>(End), Overrides ? *Overrides : nullptr, Index);
+                if (!Semantic.bSuccess)
+                {
+                    const FBlueprintOperationError Error = Semantic.Error.IsSet() ? Semantic.Error.GetValue() : FBlueprintOperationError();
+                    OutError = OperationError(EErrorCode::ValidationFailed, Error.Message.IsEmpty() ? TEXT("component.cloneRange semantic validation failed.") : Error.Message,
+                        Error.UECallsite.IsEmpty() ? TEXT("FBlueprintComponentOperations::ValidateCloneRange") : Error.UECallsite, Index, AssetPath);
+                    return false;
+                }
+            }
             const TSharedRef<FRegistryWriteOperation> WriteOperation = MakeShared<FRegistryWriteOperation>(Operations[Index], Index);
             WriteOperation->GatherPreflight(OutPreflight);
             TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>(); Item->SetNumberField(TEXT("operationIndex"), Index); Item->SetStringField(TEXT("operation"), Name); Item->SetStringField(TEXT("domain"), Definition->Domain); Validated.Add(MakeShared<FJsonValueObject>(Item));
@@ -1023,7 +1164,7 @@ namespace CodexUnrealBlueprint
         if (RequestId.TrimStartAndEnd().IsEmpty()) { OutError = OperationError(EErrorCode::RequestIdRequired, TEXT("blueprint.apply requires a non-empty requestId."), TEXT("FOperationRegistry::BuildWriteRequest")); return false; }
         TSharedRef<FJsonObject> Ignored = MakeShared<FJsonObject>(); FPreflightRequest ValidatedPreflight;
         if (!Validate(Operations, ValidatedPreflight, Ignored, OutError)) return false;
-        OutRequest = FWritePipelineRequest(); OutRequest.RequestId = RequestId; OutRequest.TransactionDescription = FString::Printf(TEXT("Codex Blueprint apply %s"), *RequestId); OutRequest.Preflight.ExpectedStateHashes = ExpectedStateHashes;
+        OutRequest = FWritePipelineRequest(); OutRequest.RequestId = RequestId; OutRequest.TransactionDescription = FString::Printf(TEXT("Codex Blueprint apply %s"), *RequestId); OutRequest.Preflight.ExpectedStructureHashes = ExpectedStateHashes;
         for (int32 Index = 0; Index < Operations.Num(); ++Index) OutRequest.Operations.Add(MakeShared<FRegistryWriteOperation>(Operations[Index], Index));
         return true;
     }

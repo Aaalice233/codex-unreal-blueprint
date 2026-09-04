@@ -23,9 +23,17 @@ namespace CodexUnrealBlueprint
     public:
         static FBlueprintOperationResult List(UBlueprint* Blueprint, bool bIncludeInherited,
             int32 OperationIndex = INDEX_NONE);
+        static FBlueprintOperationResult List(UBlueprint* Blueprint, bool bIncludeInherited,
+            const TSharedPtr<FJsonObject>& Query, int32 OperationIndex = INDEX_NONE);
         static FBlueprintOperationResult Add(UBlueprint* Blueprint, UClass* ComponentClass, const FName VariableName,
             const TOptional<FComponentReference>& Parent, const FTransform& RelativeTransform,
             int32 OperationIndex = INDEX_NONE);
+        static FBlueprintOperationResult CloneRange(UBlueprint* Blueprint, const FComponentReference& Source,
+            const FString& TargetPattern, int32 StartIndex, int32 EndIndex,
+            const TSharedPtr<FJsonObject>& PropertyOverrides, int32 OperationIndex = INDEX_NONE);
+        static FBlueprintOperationResult ValidateCloneRange(UBlueprint* Blueprint, const FComponentReference& Source,
+            const FString& TargetPattern, int32 StartIndex, int32 EndIndex,
+            const TSharedPtr<FJsonObject>& PropertyOverrides, int32 OperationIndex = INDEX_NONE);
         static FBlueprintOperationResult Remove(UBlueprint* Blueprint, const FComponentReference& Component,
             bool bPromoteChildren, int32 OperationIndex = INDEX_NONE);
         static FBlueprintOperationResult Rename(UBlueprint* Blueprint, const FComponentReference& Component,
@@ -50,6 +58,7 @@ namespace CodexUnrealBlueprint
         static UActorComponent* ResolveTemplate(UBlueprint* Blueprint, const FComponentReference& Component,
             bool bCreateInheritedOverride, FBlueprintOperationError& OutError, int32 OperationIndex);
         static TSharedRef<FJsonObject> DescribeNode(UBlueprint* QueryBlueprint, UBlueprint* OwnerBlueprint,
-            USCS_Node* Node, bool bInherited, FBlueprintOperationError& OutError);
+            USCS_Node* Node, bool bInherited, const TSet<FString>& Fields, const TArray<FString>& PropertyPaths,
+            FBlueprintOperationError& OutError);
     };
 }

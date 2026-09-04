@@ -22,8 +22,8 @@ namespace
     {
     public:
         FAddBooleanVariableOperation(UBlueprint* InBlueprint, const int32 InIndex, const FName InName,
-            FString InReadOnlyFilename = FString())
-            : Blueprint(InBlueprint), Index(InIndex), Name(InName), ReadOnlyFilename(MoveTemp(InReadOnlyFilename)) {}
+            FString InReadOnlyFilename = FString(), UBlueprint* InCompileCheck = nullptr)
+            : Blueprint(InBlueprint), CompileCheck(InCompileCheck), Index(InIndex), Name(InName), ReadOnlyFilename(MoveTemp(InReadOnlyFilename)) {}
 
         virtual int32 GetOperationIndex() const override { return Index; }
 
@@ -33,6 +33,11 @@ namespace
             {
                 Request.TargetPackageNames.AddUnique(Blueprint->GetOutermost()->GetName());
                 Request.CompilePackageNames.AddUnique(Blueprint->GetOutermost()->GetName());
+            }
+            if (CompileCheck.IsValid())
+            {
+                Request.AdditionalImpactPackageNames.AddUnique(CompileCheck->GetOutermost()->GetName());
+                Request.CompilePackageNames.AddUnique(CompileCheck->GetOutermost()->GetName());
             }
         }
 
@@ -88,6 +93,7 @@ namespace
 
     private:
         TWeakObjectPtr<UBlueprint> Blueprint;
+        TWeakObjectPtr<UBlueprint> CompileCheck;
         int32 Index;
         FName Name;
         FString ReadOnlyFilename;
@@ -155,6 +161,48 @@ bool FCodexPipelinePersistenceIntegrationTest::RunTest(const FString& Parameters
     TestNotNull(TEXT("reloaded Blueprint is available"), Reloaded);
     if (Reloaded) TestTrue(TEXT("persisted variable survives reload"),
         FBlueprintEditorUtils::FindNewVariableIndex(Reloaded, TEXT("PipelineFlag")) != INDEX_NONE);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexPipelineDirectSaveScopeIntegrationTest,
+    "CodexUnrealBlueprint.Integration.Pipeline.DirectTargetsOnlyAreSaved", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexPipelineDirectSaveScopeIntegrationTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("DirectSaveScope"));
+    UBlueprint* Direct = Fixture.CreateBlueprint(TEXT("BP_Direct"));
+    UBlueprint* Dependency = Fixture.CreateBlueprint(TEXT("BP_CompileOnly"));
+    FString DirectFilename, DependencyFilename;
+    if (!Direct || !Dependency) return false;
+    FKismetEditorUtilities::CompileBlueprint(Direct); FKismetEditorUtilities::CompileBlueprint(Dependency);
+    if (!Fixture.Save(Direct, DirectFilename) || !Fixture.Save(Dependency, DependencyFilename)) return false;
+    Direct->GetOutermost()->SetDirtyFlag(false); Dependency->GetOutermost()->SetDirtyFlag(false);
+    const FString DirectPackageName = Direct->GetOutermost()->GetName();
+    const FString DependencyPackageName = Dependency->GetOutermost()->GetName();
+    FString DirectBefore, DependencyBefore, HashError;
+    FWritePreflight::ComputePackageStateHash(DirectPackageName, DirectBefore, HashError);
+    FWritePreflight::ComputePackageStateHash(DependencyPackageName, DependencyBefore, HashError);
+
+    FWritePipelineRequest Request;
+    Request.RequestId = Fixture.GetRunId() + TEXT("_scope");
+    Request.TransactionDescription = TEXT("Direct save scope fixture");
+    Request.Operations.Add(MakeShared<FAddBooleanVariableOperation>(Direct, 0, TEXT("DirectOnlyChange"), FString(), Dependency));
+    TArray<FString> Phases;
+    const FWritePipelineResult Result = FWritePipeline::Execute(Request, MakeProgress(Phases));
+    if (!TestTrue(TEXT("direct-save scope pipeline succeeds"), Result.bSucceeded)) return false;
+    const FWritePackageResult* DirectResult = Result.Packages.FindByPredicate([DirectPackageName](const FWritePackageResult& Package)
+        { return Package.PackageName == DirectPackageName; });
+    const FWritePackageResult* DependencyResult = Result.Packages.FindByPredicate([DependencyPackageName](const FWritePackageResult& Package)
+        { return Package.PackageName == DependencyPackageName; });
+    TestTrue(TEXT("direct target is saved"), DirectResult && DirectResult->bDirectWrite && DirectResult->bSaved);
+    TestTrue(TEXT("compile-only package is not saved"), DependencyResult && DependencyResult->bCompileCheck && !DependencyResult->bSaveAttempted && !DependencyResult->bSaved);
+    FString DirectAfter, DependencyAfter;
+    FWritePreflight::ComputePackageStateHash(DirectPackageName, DirectAfter, HashError);
+    FWritePreflight::ComputePackageStateHash(DependencyPackageName, DependencyAfter, HashError);
+    TestNotEqual(TEXT("direct target file changes"), DirectBefore, DirectAfter);
+    TestEqual(TEXT("compile-only dependency file stays byte-identical"), DependencyBefore, DependencyAfter);
+    UPackage* ReloadedDependency = FindPackage(nullptr, *DependencyPackageName);
+    TestTrue(TEXT("compile-only dependency is restored clean"), ReloadedDependency && !ReloadedDependency->IsDirty());
     return true;
 }
 

@@ -25,6 +25,8 @@ namespace CodexUnrealBlueprint
         bool bProviderEnabled = false;
         bool bProviderAvailable = false;
         FString ProviderName;
+        FString WorkingCopyKind = TEXT("none");
+        FString WorkingCopyRoot;
         FString Error;
         TArray<FSourceControlFileState> Files;
     };

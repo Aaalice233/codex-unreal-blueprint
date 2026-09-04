@@ -6,8 +6,12 @@
 #include "Components/SceneComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Blueprint.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 #include "CodexUnrealBlueprintComponentOperations.h"
+#include "CodexUnrealBlueprintEditorSafeDispatcher.h"
+#include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintProtocol.h"
 #include "CodexUnrealBlueprintRequestJournal.h"
 #include "CodexUnrealBlueprintService.h"
@@ -94,16 +98,16 @@ bool FCodexPublicEntryFaultMatrixTest::RunTest(const FString& Parameters)
             TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-1\",\"method\":\"blueprint.apply\",\"params\":{\"operations\":[{\"operation\":\"asset.create\",\"packagePath\":\"/Game/CodexAutomation/Unused\",\"kind\":\"blueprint\"}]}}"),
             EErrorCode::RequestIdRequired },
         { TEXT("unknown registry operation"),
-            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-2\",\"method\":\"blueprint.validate\",\"params\":{\"operations\":[{\"operation\":\"unknown.operation\",\"assetPath\":\"/Game/Unused.Unused\"}]}}"),
+            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-2\",\"method\":\"blueprint.validate\",\"params\":{\"requestId\":\"fault-request-2\",\"operations\":[{\"operation\":\"unknown.operation\",\"assetPath\":\"/Game/Unused.Unused\"}]}}"),
             EErrorCode::UnknownOperation },
         { TEXT("wrong registry field type"),
-            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-3\",\"method\":\"blueprint.validate\",\"params\":{\"operations\":[{\"operation\":\"asset.create\",\"packagePath\":42,\"kind\":\"blueprint\"}]}}"),
+            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-3\",\"method\":\"blueprint.validate\",\"params\":{\"requestId\":\"fault-request-3\",\"operations\":[{\"operation\":\"asset.create\",\"packagePath\":42,\"kind\":\"blueprint\"}]}}"),
             EErrorCode::TypeMismatch },
         { TEXT("unknown registry field"),
-            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-4\",\"method\":\"blueprint.validate\",\"params\":{\"operations\":[{\"operation\":\"asset.create\",\"packagePath\":\"/Game/CodexAutomation/Unused\",\"kind\":\"blueprint\",\"typo\":true}]}}"),
+            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-4\",\"method\":\"blueprint.validate\",\"params\":{\"requestId\":\"fault-request-4\",\"operations\":[{\"operation\":\"asset.create\",\"packagePath\":\"/Game/CodexAutomation/Unused\",\"kind\":\"blueprint\",\"typo\":true}]}}"),
             EErrorCode::TypeMismatch },
         { TEXT("missing verification asset"),
-            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-5\",\"method\":\"blueprint.verify\",\"params\":{\"assetPaths\":[\"/Game/CodexAutomation/DoesNotExist.DoesNotExist\"],\"compile\":false,\"reload\":false}}"),
+            TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"fault-5\",\"method\":\"blueprint.verify\",\"params\":{\"requestId\":\"fault-request-5\",\"assetPaths\":[\"/Game/CodexAutomation/DoesNotExist.DoesNotExist\"],\"compile\":false,\"reload\":false}}"),
             EErrorCode::AssetNotFound }
     };
     for (const FFaultCase& Case : Cases)
@@ -113,9 +117,23 @@ bool FCodexPublicEntryFaultMatrixTest::RunTest(const FString& Parameters)
         if (!TestTrue(*FString::Printf(TEXT("%s JSON parses"), Case.Name),
             FProtocolRequest::Parse(Case.Json, Request, ParseError))) continue;
         const FProtocolResponse Response = FCoreService::Get().Dispatch(Request);
-        TestFalse(*FString::Printf(TEXT("%s cannot report success"), Case.Name), Response.IsSuccess());
-        TestTrue(*FString::Printf(TEXT("%s returns its stable error"), Case.Name),
-            Response.Error.IsSet() && Response.Error.GetValue().Code == Case.Expected);
+        if (!Response.IsSuccess())
+        {
+            TestTrue(*FString::Printf(TEXT("%s returns its stable error"), Case.Name),
+                Response.Error.IsSet() && Response.Error.GetValue().Code == Case.Expected);
+            continue;
+        }
+        FString JobId;
+        if (!TestTrue(*FString::Printf(TEXT("%s returns a job"), Case.Name), Response.Result->TryGetStringField(TEXT("jobId"), JobId))) continue;
+        FJobSnapshot Snapshot; const double Deadline = FPlatformTime::Seconds() + 10.0;
+        while (FPlatformTime::Seconds() < Deadline)
+        {
+            FJobManager::Get().Tick(FPlatformTime::Seconds()); FEditorSafeDispatcher::Get().Tick();
+            if (FJobManager::Get().Get(JobId, Snapshot) && Snapshot.bTerminal) break;
+            FPlatformProcess::Sleep(0.005f);
+        }
+        TestTrue(*FString::Printf(TEXT("%s returns its stable async error"), Case.Name),
+            Snapshot.bTerminal && Snapshot.Error.IsSet() && Snapshot.Error.GetValue().Code == Case.Expected);
     }
     return true;
 }

@@ -14,5 +14,9 @@ namespace CodexUnrealBlueprint
         static bool Inspect(const FString& AssetPath, const TArray<FString>& Facets,
             const TArray<FString>& ClassDefaultPropertyPaths, int32 Offset, int32 Limit,
             TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError);
+        static bool Inspect(const FString& AssetPath, const TArray<FString>& Facets,
+            const TArray<FString>& ClassDefaultPropertyPaths, const TSharedPtr<FJsonObject>& ComponentQuery,
+            int32 Offset, int32 Limit, TSharedRef<FJsonObject>& OutResult, FProtocolError& OutError);
+        static bool ComputeStructureHash(const FString& AssetPath, FString& OutHash, FProtocolError& OutError);
     };
 }
