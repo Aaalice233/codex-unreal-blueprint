@@ -5,6 +5,7 @@
 #include "Editor/EditorEngine.h"
 #include "Engine/Blueprint.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Logging/TokenizedMessage.h"
@@ -22,6 +23,54 @@ namespace CodexUnrealBlueprint
 {
     namespace
     {
+        class FPhaseTimingRecorder
+        {
+        public:
+            FPhaseTimingRecorder()
+                : PipelineStartedAt(FPlatformTime::Seconds())
+            {
+            }
+
+            void Enter(const FString& Phase)
+            {
+                const double Now = FPlatformTime::Seconds();
+                CompleteActivePhase(Now);
+                FWritePhaseTiming Timing;
+                Timing.Phase = Phase;
+                Timings.Add(MoveTemp(Timing));
+                ActivePhaseStartedAt = Now;
+            }
+
+            void SetItemCount(const int32 ItemCount)
+            {
+                if (Timings.Num() > 0)
+                {
+                    Timings.Last().ItemCount = ItemCount;
+                }
+            }
+
+            void Finish(FWritePipelineResult& Result)
+            {
+                const double Now = FPlatformTime::Seconds();
+                CompleteActivePhase(Now);
+                Result.TotalDurationMs = FMath::Max(0.0, (Now - PipelineStartedAt) * 1000.0);
+                Result.PhaseTimings = MoveTemp(Timings);
+            }
+
+        private:
+            void CompleteActivePhase(const double Now)
+            {
+                if (Timings.Num() > 0 && ActivePhaseStartedAt >= 0.0)
+                {
+                    Timings.Last().DurationMs = FMath::Max(0.0, (Now - ActivePhaseStartedAt) * 1000.0);
+                }
+            }
+
+            double PipelineStartedAt = 0.0;
+            double ActivePhaseStartedAt = -1.0;
+            TArray<FWritePhaseTiming> Timings;
+        };
+
         TArray<TSharedPtr<FJsonValue>> WritePipelineStringsToJson(const TArray<FString>& Values)
         {
             TArray<TSharedPtr<FJsonValue>> Json;
@@ -37,7 +86,8 @@ namespace CodexUnrealBlueprint
             const FString& Phase,
             const bool bCancellationSafe,
             const FString& Message,
-            FWritePipelineError& OutError)
+            FWritePipelineError& OutError,
+            FPhaseTimingRecorder* Timing = nullptr)
         {
             if (bCancellationSafe && Progress.IsCancellationRequested && Progress.IsCancellationRequested())
             {
@@ -56,6 +106,10 @@ namespace CodexUnrealBlueprint
             if (Progress.Heartbeat)
             {
                 Progress.Heartbeat();
+            }
+            if (Timing)
+            {
+                Timing->Enter(Phase);
             }
             return true;
         }
@@ -270,6 +324,15 @@ namespace CodexUnrealBlueprint
         return Json;
     }
 
+    TSharedRef<FJsonObject> FWritePhaseTiming::ToJson() const
+    {
+        TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
+        Json->SetStringField(TEXT("phase"), Phase);
+        Json->SetNumberField(TEXT("durationMs"), DurationMs);
+        Json->SetNumberField(TEXT("itemCount"), ItemCount);
+        return Json;
+    }
+
     TSharedRef<FJsonObject> FWritePipelineResult::ToJson() const
     {
         TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
@@ -296,6 +359,18 @@ namespace CodexUnrealBlueprint
             OperationJson.Add(MakeShared<FJsonValueObject>(Item));
         }
         Json->SetArrayField(TEXT("operationResults"), OperationJson);
+        TArray<TSharedPtr<FJsonValue>> TimingJson;
+        double MeasuredPhaseDurationMs = 0.0;
+        for (const FWritePhaseTiming& PhaseTiming : PhaseTimings)
+        {
+            TimingJson.Add(MakeShared<FJsonValueObject>(PhaseTiming.ToJson()));
+            MeasuredPhaseDurationMs += PhaseTiming.DurationMs;
+        }
+        TSharedRef<FJsonObject> Timing = MakeShared<FJsonObject>();
+        Timing->SetNumberField(TEXT("totalMs"), TotalDurationMs);
+        Timing->SetNumberField(TEXT("overheadMs"), FMath::Max(0.0, TotalDurationMs - MeasuredPhaseDurationMs));
+        Timing->SetArrayField(TEXT("phases"), TimingJson);
+        Json->SetObjectField(TEXT("timing"), Timing);
         if (!Error.Code.IsEmpty())
         {
             TSharedRef<FJsonObject> ErrorJson = MakeShared<FJsonObject>();
@@ -354,9 +429,10 @@ namespace CodexUnrealBlueprint
         return Result;
     }
 
-    FWritePipelineResult FWritePipeline::ExecuteOnGameThread(
+    static FWritePipelineResult ExecuteOnGameThreadTimed(
         const FWritePipelineRequest& Request,
-        const FWritePipelineProgress& Progress)
+        const FWritePipelineProgress& Progress,
+        FPhaseTimingRecorder& Timing)
     {
         check(IsInGameThread());
         FWritePipelineResult Result;
@@ -382,12 +458,13 @@ namespace CodexUnrealBlueprint
             Operation->GatherPreflight(PreflightRequest);
         }
 
-        if (!EnterPhase(Progress, TEXT("preflight"), true, TEXT("Validating affected packages and references."), Result.Error))
+        if (!EnterPhase(Progress, TEXT("preflight"), true, TEXT("Validating affected packages and references."), Result.Error, &Timing))
         {
             PopulateFailureReport(Result, TEXT("preflight"), Result.Error.Message);
             return Result;
         }
         const FPreflightResult Preflight = FWritePreflight::Run(PreflightRequest);
+        Timing.SetItemCount(Preflight.ImpactPackages.Num());
         for (const FImpactPackage& Impact : Preflight.ImpactPackages)
         {
             Result.ImpactPackages.Add(Impact.PackageName);
@@ -445,11 +522,12 @@ namespace CodexUnrealBlueprint
             }
         }
 
-        if (!EnterPhase(Progress, TEXT("modify"), true, TEXT("Applying operations in an Unreal transaction."), Result.Error))
+        if (!EnterPhase(Progress, TEXT("modify"), true, TEXT("Applying operations in an Unreal transaction."), Result.Error, &Timing))
         {
             PopulateFailureReport(Result, TEXT("modify"), Result.Error.Message);
             return Result;
         }
+        Timing.SetItemCount(Request.Operations.Num());
 
         FWriteMutationContext MutationContext;
         bool bTransactionSucceeded = true;
@@ -553,10 +631,14 @@ namespace CodexUnrealBlueprint
                         TEXT("FWritePipeline::ExecuteOnGameThread"));
                     bTransactionSucceeded = false;
                 }
-                else if (!EnterPhase(Progress, TEXT("compile"), false, TEXT("Compiling affected Blueprints in dependency order."), Result.Error))
+                else if (!EnterPhase(Progress, TEXT("compile"), false, TEXT("Compiling affected Blueprints in dependency order."), Result.Error, &Timing))
                 {
                     bTransactionSucceeded = false;
                 }
+            }
+            if (bTransactionSucceeded)
+            {
+                Timing.SetItemCount(Preflight.CompileOrder.Num());
             }
             for (int32 CompileIndex = 0; bTransactionSucceeded && CompileIndex < Preflight.CompileOrder.Num(); ++CompileIndex)
             {
@@ -655,12 +737,18 @@ namespace CodexUnrealBlueprint
             PopulateFailureReport(Result, TEXT("save"), Result.Error.Message);
             return Result;
         }
-        if (!EnterPhase(Progress, TEXT("save"), false, TEXT("Saving affected packages one by one."), Result.Error))
+        if (!EnterPhase(Progress, TEXT("save"), false, TEXT("Saving affected packages one by one."), Result.Error, &Timing))
         {
             Result.bStateUnknown = true;
             PopulateFailureReport(Result, TEXT("save"), Result.Error.Message);
             return Result;
         }
+        int32 DirectWriteCount = 0;
+        for (const FImpactPackage& Impact : Preflight.ImpactPackages)
+        {
+            if (Impact.bDirectWrite) ++DirectWriteCount;
+        }
+        Timing.SetItemCount(DirectWriteCount);
         bool bSaveFailure = false;
         int32 SavedCount = 0;
         for (int32 Index = 0; Index < Preflight.ImpactPackages.Num(); ++Index)
@@ -748,7 +836,7 @@ namespace CodexUnrealBlueprint
             Result.Packages[Index].bAddSucceeded = MarkForAdd.bProviderEnabled && MarkForAdd.bSucceeded;
         }
 
-        if (!EnterPhase(Progress, TEXT("reload"), false, TEXT("Reloading saved packages from disk."), Result.Error))
+        if (!EnterPhase(Progress, TEXT("reload"), false, TEXT("Reloading saved packages from disk."), Result.Error, &Timing))
         {
             Result.bStateUnknown = true;
             PopulateFailureReport(Result, TEXT("reload"), Result.Error.Message);
@@ -780,6 +868,7 @@ namespace CodexUnrealBlueprint
                 ReloadedPackageNames.Add(PackageResult.PackageName);
             }
         }
+        Timing.SetItemCount(PackagesToReload.Num());
         FText ReloadError;
         if (PackagesToReload.Num() == 0
             || !UPackageTools::ReloadPackages(PackagesToReload, ReloadError, EReloadPackagesInteractionMode::AssumePositive))
@@ -817,12 +906,13 @@ namespace CodexUnrealBlueprint
                     ReloadedPackageNames.Num(), TEXT("Reloaded package."), PackageResult.PackageName);
         }
 
-        if (!EnterPhase(Progress, TEXT("verify"), false, TEXT("Verifying reloaded package hashes and compile state."), Result.Error))
+        if (!EnterPhase(Progress, TEXT("verify"), false, TEXT("Verifying reloaded package hashes and compile state."), Result.Error, &Timing))
         {
             Result.bStateUnknown = true;
             PopulateFailureReport(Result, TEXT("verify"), Result.Error.Message);
             return Result;
         }
+        Timing.SetItemCount(Result.Packages.Num());
         bool bVerifyFailure = false;
         for (int32 Index = 0; Index < Result.Packages.Num(); ++Index)
         {
@@ -866,6 +956,16 @@ namespace CodexUnrealBlueprint
         }
 
         Result.bSucceeded = true;
+        return Result;
+    }
+
+    FWritePipelineResult FWritePipeline::ExecuteOnGameThread(
+        const FWritePipelineRequest& Request,
+        const FWritePipelineProgress& Progress)
+    {
+        FPhaseTimingRecorder Timing;
+        FWritePipelineResult Result = ExecuteOnGameThreadTimed(Request, Progress, Timing);
+        Timing.Finish(Result);
         return Result;
     }
 }

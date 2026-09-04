@@ -19,6 +19,7 @@ Migrated the product to a Codex plugin with a bundled stdio MCP server and fully
 - Upgraded the Editor/MCP protocol to `2.0.0`; validate and verify now return idempotent in-memory jobs with deterministic package/asset progress, while write jobs remain journal-durable. / Editor/MCP 协议升级到 `2.0.0`；validate 和 verify 改为幂等内存 Job 并返回确定的 Package/资产进度，写 Job 继续由 Journal 持久化。
 - Added global facet-independent Blueprint structure hashes, exact expected-hash checks, package roles that save direct targets only, filtered component inspection, atomic component ranges, structured transforms, and component/property verification assertions. / 新增与 facet 无关的全局 Blueprint 结构 Hash、精确预期 Hash 校验、仅保存直接目标的 Package 角色、组件过滤检查、原子组件范围、结构化 Transform 以及组件/属性断言。
 - Split Editor source-control provider state from working-copy detection and strengthened session discovery with executable identity and atomic five-second heartbeats. / 将 Editor Source Control Provider 状态与工作副本检测分离，并通过可执行文件身份及每 5 秒原子心跳强化 Session 发现。
+- Added per-phase write timing and a two-Blueprint, 40-Niagara-component performance E2E with a configurable regression budget. / 新增写入阶段计时，以及包含两个 Blueprint、40 个 Niagara 组件并支持可配置回归预算的性能 E2E。
 
 ## [1.0.0]
 

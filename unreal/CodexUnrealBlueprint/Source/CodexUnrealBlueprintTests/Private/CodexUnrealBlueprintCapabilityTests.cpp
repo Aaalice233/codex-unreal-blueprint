@@ -17,11 +17,13 @@
 #include "Engine/Blueprint.h"
 #include "Engine/Level.h"
 #include "Engine/LevelScriptBlueprint.h"
+#include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/UserDefinedEnum.h"
 #include "Engine/UserDefinedStruct.h"
 #include "Materials/Material.h"
 #include "Misc/PackageName.h"
+#include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "UObject/Package.h"
 #include "GameFramework/Actor.h"
@@ -106,7 +108,7 @@ namespace
     }
 
     bool DispatchOperations(const FString& RequestId, const TArray<TSharedRef<FJsonObject>>& Operations,
-        FJobSnapshot& OutSnapshot, FString& OutError)
+        FJobSnapshot& OutSnapshot, FString& OutError, const double TimeoutSeconds = 30.0)
     {
         TArray<TSharedPtr<FJsonValue>> OperationValues;
         for (const TSharedRef<FJsonObject>& Operation : Operations)
@@ -145,7 +147,7 @@ namespace
             OutError = TEXT("Dispatch did not return jobId.");
             return false;
         }
-        const double Deadline = FPlatformTime::Seconds() + 30.0;
+        const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
         while (FPlatformTime::Seconds() < Deadline)
         {
             FJobManager::Get().Tick(FPlatformTime::Seconds());
@@ -162,6 +164,69 @@ namespace
         }
         OutError = TEXT("Timed out waiting for the public write job.");
         return false;
+    }
+
+    bool PrepareNiagaraCloneFixture(FScopedFixture& Fixture, const FString& Leaf,
+        UBlueprint*& OutBlueprint, FString& OutFilename)
+    {
+        OutBlueprint = Fixture.CreateBlueprint(Leaf);
+        if (!OutBlueprint) return false;
+        const FTransform SourceTransform(FRotator(0.0, 30.0, 0.0), FVector(268.829, 0.0, 541.318));
+        const FBlueprintOperationResult Body = FBlueprintComponentOperations::Add(
+            OutBlueprint, USceneComponent::StaticClass(), TEXT("bp_Body"),
+            TOptional<CodexUnrealBlueprint::FComponentReference>(),
+            FTransform::Identity);
+        if (!Body.bSuccess) return false;
+        const FBlueprintOperationResult Source = FBlueprintComponentOperations::Add(
+            OutBlueprint, UNiagaraComponent::StaticClass(), TEXT("bp_MissileEffect10"),
+            TOptional<CodexUnrealBlueprint::FComponentReference>(ComponentRef(TEXT("bp_Body"))), SourceTransform);
+        if (!Source.bSuccess) return false;
+        const FBlueprintOperationResult AutoActivate = FBlueprintComponentOperations::SetProperty(
+            OutBlueprint, ComponentRef(TEXT("bp_MissileEffect10")), TEXT("bAutoActivate"),
+            MakeShared<FJsonValueBoolean>(false), false);
+        if (!AutoActivate.bSuccess) return false;
+        FKismetEditorUtilities::CompileBlueprint(OutBlueprint);
+        if (!Fixture.Save(OutBlueprint, OutFilename)) return false;
+        OutBlueprint->GetOutermost()->SetDirtyFlag(false);
+        return true;
+    }
+
+    TSharedRef<FJsonObject> MakeCloneRangeOperation(UBlueprint* Blueprint, const int32 EndIndex)
+    {
+        TSharedRef<FJsonObject> Operation = FScopedFixture::Operation(TEXT("component.cloneRange"));
+        Operation->SetStringField(TEXT("assetPath"), Blueprint->GetPathName());
+        TSharedRef<FJsonObject> Source = MakeShared<FJsonObject>();
+        Source->SetStringField(TEXT("variableName"), TEXT("bp_MissileEffect10"));
+        Operation->SetObjectField(TEXT("sourceComponent"), Source);
+        Operation->SetStringField(TEXT("targetPattern"), TEXT("bp_MissileEffect{index}"));
+        Operation->SetNumberField(TEXT("startIndex"), 11);
+        Operation->SetNumberField(TEXT("endIndex"), EndIndex);
+        TSharedRef<FJsonObject> Overrides = MakeShared<FJsonObject>();
+        Overrides->SetBoolField(TEXT("bAutoActivate"), false);
+        Operation->SetObjectField(TEXT("propertyOverrides"), Overrides);
+        return Operation;
+    }
+
+    bool ValidateNiagaraCloneRange(FAutomationTestBase& Test, UBlueprint* Blueprint, const int32 EndIndex)
+    {
+        if (!Blueprint || !Blueprint->SimpleConstructionScript) return false;
+        bool bValid = true;
+        for (int32 Index = 11; Index <= EndIndex; ++Index)
+        {
+            const FName Name(*FString::Printf(TEXT("bp_MissileEffect%d"), Index));
+            USCS_Node* Node = Blueprint->SimpleConstructionScript->FindSCSNode(Name);
+            bValid = Test.TestNotNull(*FString::Printf(TEXT("%s exists"), *Name.ToString()), Node) && bValid;
+            if (!Node) continue;
+            bValid = Test.TestEqual(*FString::Printf(TEXT("%s keeps Niagara class"), *Name.ToString()),
+                Node->ComponentClass, UNiagaraComponent::StaticClass()) && bValid;
+            USCS_Node* Parent = Blueprint->SimpleConstructionScript->FindParentNode(Node);
+            bValid = Test.TestTrue(*FString::Printf(TEXT("%s keeps bp_Body parent"), *Name.ToString()),
+                Parent && Parent->GetVariableName() == TEXT("bp_Body")) && bValid;
+            const UNiagaraComponent* Niagara = Cast<UNiagaraComponent>(Node->ComponentTemplate);
+            bValid = Test.TestTrue(*FString::Printf(TEXT("%s keeps bAutoActivate=false"), *Name.ToString()),
+                Niagara && !Niagara->bAutoActivate) && bValid;
+        }
+        return bValid;
     }
 }
 
@@ -684,6 +749,98 @@ bool FCodexPublicInspectionLevelAndValidationTest::RunTest(const FString& Parame
     TestTrue(TEXT("validate runs operation GatherPreflight type-reference checks"), bFoundMissingReference);
     TestFalse(TEXT("validate does not dirty the target package"), Blueprint->GetOutermost()->IsDirty());
     TestEqual(TEXT("validate does not apply the component operation"), CountComponents(Blueprint, TEXT("NeverAdded")), 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexNiagaraCloneRangePerformanceE2ETest,
+    "CodexUnrealBlueprint.E2E.Performance.NiagaraCloneRange40", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexNiagaraCloneRangePerformanceE2ETest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("NiagaraCloneRangePerformance"));
+    UBlueprint* Ice = nullptr;
+    UBlueprint* Phoenix = nullptr;
+    FString IceFilename;
+    FString PhoenixFilename;
+    if (!TestTrue(TEXT("ice Niagara fixture is ready"),
+            PrepareNiagaraCloneFixture(Fixture, TEXT("BP_IceSummon"), Ice, IceFilename))
+        || !TestTrue(TEXT("phoenix Niagara fixture is ready"),
+            PrepareNiagaraCloneFixture(Fixture, TEXT("BP_PhoenixSummon"), Phoenix, PhoenixFilename)))
+    {
+        return false;
+    }
+    const FString IcePath = Ice->GetPathName();
+    const FString PhoenixPath = Phoenix->GetPathName();
+    TArray<TSharedRef<FJsonObject>> Operations = {
+        MakeCloneRangeOperation(Ice, 36),
+        MakeCloneRangeOperation(Phoenix, 24)
+    };
+
+    FJobSnapshot Snapshot;
+    FString Error;
+    const double WallStartedAt = FPlatformTime::Seconds();
+    if (!TestTrue(TEXT("40 Niagara components clone through one public write job"),
+        DispatchOperations(Fixture.GetRunId() + TEXT("_clone40"), Operations, Snapshot, Error, 120.0)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const double WallDurationMs = (FPlatformTime::Seconds() - WallStartedAt) * 1000.0;
+
+    const TSharedPtr<FJsonObject>* Timing = nullptr;
+    if (!TestTrue(TEXT("write result exposes phase timing"), Snapshot.Result.IsValid()
+        && Snapshot.Result->TryGetObjectField(TEXT("timing"), Timing) && Timing))
+    {
+        return false;
+    }
+    const double PipelineDurationMs = (*Timing)->GetNumberField(TEXT("totalMs"));
+    TestTrue(TEXT("pipeline duration is measured"), PipelineDurationMs > 0.0);
+    const TArray<TSharedPtr<FJsonValue>>* Phases = nullptr;
+    if (!TestTrue(TEXT("all pipeline phase timings are returned"),
+        (*Timing)->TryGetArrayField(TEXT("phases"), Phases) && Phases && Phases->Num() == 6))
+    {
+        return false;
+    }
+    TSet<FString> MeasuredPhases;
+    TArray<FString> PhaseSummaries;
+    double ReloadDurationMs = 0.0;
+    for (const TSharedPtr<FJsonValue>& Value : *Phases)
+    {
+        const TSharedPtr<FJsonObject>* Phase = nullptr;
+        if (!Value.IsValid() || !Value->TryGetObject(Phase) || !Phase) continue;
+        const FString Name = (*Phase)->GetStringField(TEXT("phase"));
+        const double DurationMs = (*Phase)->GetNumberField(TEXT("durationMs"));
+        const int32 ItemCount = static_cast<int32>((*Phase)->GetNumberField(TEXT("itemCount")));
+        MeasuredPhases.Add(Name);
+        PhaseSummaries.Add(FString::Printf(TEXT("%s:%.3fms/%d"), *Name, DurationMs, ItemCount));
+        TestTrue(*FString::Printf(TEXT("%s duration is non-negative"), *Name), DurationMs >= 0.0);
+        if (Name == TEXT("reload"))
+        {
+            ReloadDurationMs = DurationMs;
+            TestEqual(TEXT("reload timing covers two direct packages"), ItemCount, 2);
+        }
+    }
+    const TSet<FString> ExpectedPhases = {
+        TEXT("preflight"), TEXT("modify"), TEXT("compile"), TEXT("save"), TEXT("reload"), TEXT("verify")
+    };
+    TestTrue(TEXT("phase timing names are complete"), MeasuredPhases.Includes(ExpectedPhases));
+
+    FString BudgetValue = FPlatformMisc::GetEnvironmentVariable(TEXT("CODEX_UNREAL_PERF_BUDGET_MS"));
+    const double BudgetMs = BudgetValue.IsEmpty() ? 60000.0 : FCString::Atod(*BudgetValue);
+    if (!TestTrue(TEXT("performance budget is positive"), BudgetMs > 0.0)) return false;
+    TestTrue(*FString::Printf(TEXT("combined clone job stays within %.0f ms performance budget"), BudgetMs),
+        PipelineDurationMs <= BudgetMs);
+    AddInfo(FString::Printf(
+        TEXT("CodexPerformance NiagaraCloneRange40 wallMs=%.3f pipelineMs=%.3f reloadMs=%.3f budgetMs=%.3f phases=[%s]"),
+        WallDurationMs, PipelineDurationMs, ReloadDurationMs, BudgetMs, *FString::Join(PhaseSummaries, TEXT(","))));
+
+    UBlueprint* ReloadedIce = LoadObject<UBlueprint>(nullptr, *IcePath);
+    UBlueprint* ReloadedPhoenix = LoadObject<UBlueprint>(nullptr, *PhoenixPath);
+    TestNotNull(TEXT("ice Blueprint reloads after performance write"), ReloadedIce);
+    TestNotNull(TEXT("phoenix Blueprint reloads after performance write"), ReloadedPhoenix);
+    const bool bIceValid = ValidateNiagaraCloneRange(*this, ReloadedIce, 36);
+    const bool bPhoenixValid = ValidateNiagaraCloneRange(*this, ReloadedPhoenix, 24);
+    TestTrue(TEXT("all 40 cloned Niagara components retain their contract"), bIceValid && bPhoenixValid);
     return true;
 }
 

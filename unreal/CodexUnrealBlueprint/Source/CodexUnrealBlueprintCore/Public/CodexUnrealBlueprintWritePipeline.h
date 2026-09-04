@@ -79,6 +79,15 @@ namespace CodexUnrealBlueprint
         TSharedRef<FJsonObject> ToJson() const;
     };
 
+    struct CODEXUNREALBLUEPRINTCORE_API FWritePhaseTiming
+    {
+        FString Phase;
+        double DurationMs = 0.0;
+        int32 ItemCount = 0;
+
+        TSharedRef<FJsonObject> ToJson() const;
+    };
+
     struct CODEXUNREALBLUEPRINTCORE_API FWritePipelineRequest
     {
         FString RequestId;
@@ -98,6 +107,8 @@ namespace CodexUnrealBlueprint
         TArray<FString> CompilerWarnings;
         TArray<FWritePackageResult> Packages;
         TMap<int32, TSharedPtr<FJsonObject>> OperationResults;
+        double TotalDurationMs = 0.0;
+        TArray<FWritePhaseTiming> PhaseTimings;
         FWritePipelineError Error;
         FWriteFailureReport FailureReport;
 

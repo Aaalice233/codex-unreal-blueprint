@@ -33,6 +33,8 @@
 
 协议 `2.0.0` 下，`blueprint_validate`、`blueprint_apply` 和 `blueprint_verify` 都立即返回 `JobSnapshot`。Snapshot 包含 `method` 和 `durability`（只读 Job 为 `memory`，写入为 `journal`）。相同 `requestId`、method 和规范化参数返回原 Job；同一 ID 对应不同请求时返回 `REQUEST_CONFLICT`。
 
+终态 `blueprint_apply` 结果包含 `timing.totalMs`、`timing.overheadMs` 和按执行顺序排列的 `timing.phases`。`preflight`、`modify`、`compile`、`save`、`reload`、`verify` 每个阶段都会报告 `phase`、`durationMs` 和 `itemCount`。计时覆盖 UE Pipeline 本身，不包含客户端传输、队列等待和 Fixture 准备。
+
 `blueprint_inspect` 返回不受 facet、过滤和分页影响的全局 `structureHash`，并带 `structureHashScope: "blueprint-structure-v1"` 及各完整请求 facet 的 Hash。`componentQuery` 先按名称、正则、Class 或继承关系过滤，再分页，并可选择字段与精确模板属性路径；结果同时报告组件总数和匹配数。
 
 Operation Registry 支持 `component.add.initialProperties`、原子的 `component.cloneRange`（恰好一个 `{index}`，最多 200 个组件）以及文本/结构化 JSON Transform。verify expectation 可断言 Package Dirty、单组件或连续编号范围、Class/继承/父节点/Transform/属性，以及过滤后的组件数量。

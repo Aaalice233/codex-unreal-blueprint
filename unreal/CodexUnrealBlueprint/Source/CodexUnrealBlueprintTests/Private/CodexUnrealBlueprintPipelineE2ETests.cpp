@@ -150,6 +150,22 @@ bool FCodexPipelinePersistenceIntegrationTest::RunTest(const FString& Parameters
     TestFalse(TEXT("success state is known"), Result.bStateUnknown);
     TestEqual(TEXT("all pipeline phases emitted"), FString::Join(Phases, TEXT(",")),
         FString(TEXT("preflight,modify,compile,save,reload,verify")));
+    TestTrue(TEXT("pipeline total duration is measured"), Result.TotalDurationMs > 0.0);
+    TestEqual(TEXT("all pipeline phase durations are measured"), Result.PhaseTimings.Num(), 6);
+    if (Result.PhaseTimings.Num() == 6)
+    {
+        TestEqual(TEXT("preflight timing reports one package"), Result.PhaseTimings[0].ItemCount, 1);
+        TestEqual(TEXT("modify timing reports one operation"), Result.PhaseTimings[1].ItemCount, 1);
+        TestEqual(TEXT("compile timing reports one package"), Result.PhaseTimings[2].ItemCount, 1);
+        TestEqual(TEXT("save timing reports one direct package"), Result.PhaseTimings[3].ItemCount, 1);
+        TestEqual(TEXT("reload timing reports one package"), Result.PhaseTimings[4].ItemCount, 1);
+        TestEqual(TEXT("verify timing reports one package"), Result.PhaseTimings[5].ItemCount, 1);
+    }
+    const TSharedRef<FJsonObject> ResultJson = Result.ToJson();
+    const TSharedPtr<FJsonObject>* TimingJson = nullptr;
+    TestTrue(TEXT("serialized write result exposes timing"),
+        ResultJson->TryGetObjectField(TEXT("timing"), TimingJson) && TimingJson
+        && (*TimingJson)->GetNumberField(TEXT("totalMs")) > 0.0);
     TestEqual(TEXT("one package verified"), Result.Packages.Num(), 1);
     if (Result.Packages.Num() == 1)
     {
