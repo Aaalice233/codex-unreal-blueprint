@@ -9,6 +9,7 @@
 #include "Engine/Level.h"
 #include "Engine/LevelScriptBlueprint.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Misc/SecureHash.h"
 #include "CodexUnrealBlueprintAnimOperations.h"
@@ -96,16 +97,20 @@ namespace CodexUnrealBlueprint
             Asset->SetStringField(TEXT("generatedClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : FString());
             Out->SetObjectField(TEXT("asset"), Asset);
             Out->SetObjectField(TEXT("variables"), VariableSnapshot(Blueprint));
-            const FBlueprintOperationResult Components = FBlueprintComponentOperations::List(Blueprint, true);
-            if (!Components.bSuccess)
+            // 非 Actor 蓝图没有 SCS，组件树不参与其结构快照。
+            if (Blueprint->ParentClass && Blueprint->ParentClass->IsChildOf(AActor::StaticClass()))
             {
-                OutError = FProtocolError::Make(EErrorCode::ValidationFailed,
-                    Components.Error.IsSet() ? Components.Error.GetValue().Message : TEXT("Component inspection failed."),
-                    TEXT("FBlueprintComponentOperations::List"));
-                OutError.AssetPath = Blueprint->GetPathName();
-                return false;
+                const FBlueprintOperationResult Components = FBlueprintComponentOperations::List(Blueprint, true);
+                if (!Components.bSuccess)
+                {
+                    OutError = FProtocolError::Make(EErrorCode::ValidationFailed,
+                        Components.Error.IsSet() ? Components.Error.GetValue().Message : TEXT("Component inspection failed."),
+                        TEXT("FBlueprintComponentOperations::List"));
+                    OutError.AssetPath = Blueprint->GetPathName();
+                    return false;
+                }
+                Out->SetObjectField(TEXT("components"), Components.Data);
             }
-            Out->SetObjectField(TEXT("components"), Components.Data);
             Out->SetObjectField(TEXT("graphs"), GraphSnapshot(Blueprint));
             if (UWidgetBlueprint* Widget = Cast<UWidgetBlueprint>(Blueprint))
             {

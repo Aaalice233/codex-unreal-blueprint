@@ -680,7 +680,8 @@ namespace CodexUnrealBlueprint
         FString OperationAssetPath;
         if (!CodexUmgRequireString(Operation, TEXT("operation"), Type, OutError, Blueprint, OperationIndex, Callsite)
             || !CodexUmgRequireString(Operation, TEXT("assetPath"), OperationAssetPath, OutError, Blueprint, OperationIndex, Callsite)) return false;
-        if (OperationAssetPath != Blueprint->GetPathName())
+        if (OperationAssetPath != Blueprint->GetPathName()
+            && OperationAssetPath != Blueprint->GetOutermost()->GetName())
         {
             OutError = CodexUmgError(TEXT("UmgAssetPathMismatch"), TEXT("'assetPath' does not identify the supplied Widget Blueprint."),
                 Blueprint, Callsite, OperationIndex, OperationAssetPath);

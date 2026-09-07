@@ -353,6 +353,12 @@ bool FCodexLayeredAssetInspectionUnitTest::RunTest(const FString& Parameters)
         TestTrue(TEXT("specialized snapshot matches asset family"), Specialized && (*Specialized)->HasField(Case.SpecializedField));
     }
 
+    FString WidgetHash; FProtocolError WidgetError;
+    TestNull(TEXT("Widget Blueprint has no Actor construction script"), Widget->SimpleConstructionScript);
+    TestTrue(TEXT("Widget structure hash works without SCS"),
+        FBlueprintInspection::ComputeStructureHash(Widget->GetPathName(), WidgetHash, WidgetError));
+    TestFalse(TEXT("Widget structure hash is populated"), WidgetHash.IsEmpty());
+
     TSharedRef<FJsonObject> Comparison = MakeShared<FJsonObject>(); FProtocolError CompareError;
     TestTrue(TEXT("same asset comparison succeeds"), FUnrealAssetInspection::Compare(
         Material->GetPathName(), Material->GetPathName(), {}, {}, 0, 500, Comparison, CompareError));
@@ -1059,6 +1065,57 @@ bool FCodexNiagaraCloneRangePerformanceE2ETest::RunTest(const FString& Parameter
     const bool bIceValid = ValidateNiagaraCloneRange(*this, ReloadedIce, 36);
     const bool bPhoenixValid = ValidateNiagaraCloneRange(*this, ReloadedPhoenix, 24);
     TestTrue(TEXT("all 40 cloned Niagara components retain their contract"), bIceValid && bPhoenixValid);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexUmgRenameTransactionE2ETest,
+    "CodexUnrealBlueprint.E2E.PublicEntry.UmgRenameTransaction", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexUmgRenameTransactionE2ETest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("UmgRenameTransaction"));
+    UWidgetBlueprint* Widget = Fixture.CreateWidgetBlueprint(TEXT("WBP_Rename"));
+    if (!TestNotNull(TEXT("Widget fixture created"), Widget)) return false;
+    UWidget* Root = Widget->WidgetTree->RootWidget;
+    if (!TestNotNull(TEXT("Widget fixture has root"), Root)) return false;
+    Root->bIsVariable = true;
+    FKismetEditorUtilities::CompileBlueprint(Widget);
+    FString Filename;
+    if (!TestTrue(TEXT("Widget fixture saved"), Fixture.Save(Widget, Filename))) return false;
+    Widget->GetOutermost()->SetDirtyFlag(false);
+    const FString PackagePath = Widget->GetOutermost()->GetName();
+    FString Hash; FProtocolError InspectError;
+    if (!TestTrue(TEXT("Widget without SCS has a structure hash"),
+        FBlueprintInspection::ComputeStructureHash(Widget->GetPathName(), Hash, InspectError))) return false;
+
+    TSharedRef<FJsonObject> Rename = FScopedFixture::Operation(TEXT("widget.rename"));
+    Rename->RemoveField(TEXT("op"));
+    Rename->SetStringField(TEXT("assetPath"), PackagePath);
+    Rename->SetStringField(TEXT("widget"), Root->GetName());
+    Rename->SetStringField(TEXT("newName"), TEXT("bp_Root"));
+    FJobSnapshot Snapshot; FString Error;
+    if (!TestTrue(TEXT("package path rename completes save and reload"),
+        DispatchOperations(Fixture.GetRunId() + TEXT("_rename"), {Rename}, Snapshot, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    Widget = LoadObject<UWidgetBlueprint>(nullptr, *(PackagePath + TEXT(".WBP_Rename")));
+    if (!TestNotNull(TEXT("renamed widget reloads"), Widget)) return false;
+    Root = Widget->WidgetTree->FindWidget(TEXT("bp_Root"));
+    TestNotNull(TEXT("renamed widget persisted"), Root);
+    TestTrue(TEXT("variable flag persisted"), Root && Root->bIsVariable);
+    TestNotNull(TEXT("generated class exposes renamed field"),
+        Widget->GeneratedClass->FindPropertyByName(TEXT("bp_Root")));
+
+    // 已编译生成类上的失败事务必须可撤销而不崩溃。
+    Rename->SetStringField(TEXT("widget"), TEXT("MissingWidget"));
+    Rename->SetStringField(TEXT("newName"), TEXT("bp_NeverCreated"));
+    AddExpectedError(TEXT("LogCodexUnrealBlueprintWrite: Error: Request="), EAutomationExpectedErrorFlags::Contains, 1);
+    TestFalse(TEXT("missing widget reports an operation failure"),
+        DispatchOperations(Fixture.GetRunId() + TEXT("_failure"), {Rename}, Snapshot, Error));
+    TestTrue(TEXT("failed transaction retains generated class"), IsValid(Widget->GeneratedClass));
+    TestNotNull(TEXT("failed transaction retains original widget"), Widget->WidgetTree->FindWidget(TEXT("bp_Root")));
     return true;
 }
 

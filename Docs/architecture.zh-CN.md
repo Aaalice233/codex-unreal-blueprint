@@ -1,5 +1,7 @@
 # 架构
 
+结构哈希仅对 Actor 派生蓝图检查 SCS 组件。UMG 与动画蓝图使用各自的专用结构，不要求 Actor 构造脚本。
+
 ```text
 Codex task
   ├─ skills/unreal-blueprint/SKILL.md

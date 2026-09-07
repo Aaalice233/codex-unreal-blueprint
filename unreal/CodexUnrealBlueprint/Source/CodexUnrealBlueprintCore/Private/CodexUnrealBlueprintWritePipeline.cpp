@@ -19,6 +19,8 @@
 #include "UObject/UObjectHash.h"
 #include "UObject/UObjectGlobals.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogCodexUnrealBlueprintWrite, Log, All);
+
 namespace CodexUnrealBlueprint
 {
     namespace
@@ -560,6 +562,9 @@ namespace CodexUnrealBlueprint
                 GetObjectsWithOuter(Package, Objects, true, RF_Transient);
                 for (UObject* Object : Objects)
                 {
+                    // 生成类及其默认对象由编译器重建，不写入编辑事务快照。
+                    if (Object->IsA<UClass>() || Object->GetTypedOuter<UClass>()
+                        || Object->HasAnyFlags(RF_ClassDefaultObject)) continue;
                     if (!MutationContext.Modify(Object, Result.Error))
                     {
                         bTransactionSucceeded = false;
@@ -712,6 +717,11 @@ namespace CodexUnrealBlueprint
 
         if (!bTransactionSucceeded)
         {
+            // 撤销本身可能失败，提前保留触发失败的原始诊断。
+            UE_LOG(LogCodexUnrealBlueprintWrite, Error,
+                TEXT("Request=%s phase=%s code=%s asset=%s operation=%d callsite=%s message=%s"),
+                *Request.RequestId, *FailedPhase, *Result.Error.Code, *Result.Error.AssetPath,
+                Result.Error.OperationIndex, *Result.Error.UECallsite, *Result.Error.Message);
             if (GEditor == nullptr || !GEditor->UndoTransaction(false))
             {
                 Result.bStateUnknown = true;
@@ -923,7 +933,10 @@ namespace CodexUnrealBlueprint
             UPackage* Package = FindPackage(nullptr, *PackageResult.PackageName);
             FString HashError;
             const FString ReloadedHash = PackageResult.bDirectWrite ? ResolveHash(Request, PackageResult.PackageName, HashError) : FString();
-            bool bBlueprintsValid = Package != nullptr && !Package->IsDirty();
+            // 仅检查引用的包允许保持未加载；已加载包仍须保持干净。
+            const bool bMetadataOnly = PackageResult.bReferenceCheck
+                && !PackageResult.bDirectWrite && !PackageResult.bCompileCheck;
+            bool bBlueprintsValid = Package ? !Package->IsDirty() : bMetadataOnly;
             if (Package != nullptr)
             {
                 TArray<UObject*> Objects;

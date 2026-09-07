@@ -18,6 +18,8 @@ MCP owns fixed tool envelopes, Codex annotations, session selection, and error s
 
 Asset inspection has three explicit layers:
 
+Structure hashes inspect SCS components only for Actor-derived Blueprints. Widget and animation Blueprints contribute their specialized trees without requiring an Actor construction script.
+
 - `generic` reads identity, reflected properties, dependencies, and referencers for any loadable Unreal asset.
 - `specialized` adds semantic snapshots for Blueprint/UMG/AnimBlueprint, AnimMontage, Material/Material Instance, and Niagara System assets.
 - `editable` is reported only where an asset type is backed by the strict Operation Registry and the complete write pipeline.
