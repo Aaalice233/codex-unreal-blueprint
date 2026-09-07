@@ -69,6 +69,8 @@
 
 ## 🛡️ 寫入安全
 
+分析報告、JSON/CSV 解析輸出和暫存腳本必須放在專案規範指定的文件目錄，且位於 Unreal `Content` 之外，避免自動匯入。對歷史 `_codex_asset_reports`、`_codex_log_reports` 報告目錄（`/Game/` 或 `/Game/Lua/` 下）引起的原生 DataTable 匯入視窗，外掛會自動執行 Cancel 並記錄路徑；正常資源匯入、儲存確認及其他視窗維持原有行為。
+
 每次寫入都需要唯一 `requestId`，並依序執行：
 
 ```text

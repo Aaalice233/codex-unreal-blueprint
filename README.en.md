@@ -69,6 +69,8 @@ Operation names and parameter schemas come directly from the running UE plugin's
 
 ## 🛡️ Write safety
 
+Keep reports, JSON/CSV inspection output, and helper scripts in the workspace's designated document directory outside Unreal `Content` to avoid auto-import. The plugin automatically invokes native Cancel and logs the package path only for DataTable import dialogs caused by legacy `_codex_asset_reports` or `_codex_log_reports` directories under `/Game/` or `/Game/Lua/`. Ordinary asset imports, save confirmations, and other dialogs retain their normal behavior.
+
 Every write requires a unique `requestId` and follows the same pipeline:
 
 ```text

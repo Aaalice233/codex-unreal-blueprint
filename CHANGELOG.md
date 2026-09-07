@@ -6,6 +6,8 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
+- Prevented report-driven Editor interruptions by documenting output outside Unreal Content and cancelling native DataTable import dialogs only for legacy Codex report directories, with interactive import-factory regression tests. / 明确报告输出必须位于 Unreal Content 之外，仅自动取消历史 Codex 报告目录触发的原生 DataTable 导入弹窗，并增加交互式导入工厂回归测试。
+
 Migrated the product to a Codex plugin with a bundled stdio MCP server and fully renamed UE plugin. / 已迁移为包含 stdio MCP server 的 Codex plugin，并完整重命名 UE plugin。
 
 - Added layered `generic`, `specialized`, and `editable` asset capabilities, with Editor-backed Material, Niagara, and AnimMontage inspection plus asset comparison and referencer search. / 新增 `generic`、`specialized`、`editable` 分层资产能力，以及 Editor 内 Material、Niagara、AnimMontage 检查、资产比较和引用查找。

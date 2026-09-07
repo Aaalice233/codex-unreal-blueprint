@@ -69,6 +69,8 @@
 
 ## 🛡️ 写入安全
 
+分析报告、JSON/CSV 解析输出和临时脚本必须放在项目规范指定的文档目录，且位于 Unreal `Content` 之外，避免自动导入。对历史 `_codex_asset_reports`、`_codex_log_reports` 报告目录（`/Game/` 或 `/Game/Lua/` 下）引起的原生 DataTable 导入弹窗，插件会自动执行 Cancel 并记录路径；正常资源导入、保存确认和其他弹窗保持原行为。
+
 每次写请求都需要唯一 `requestId`，并依次执行：
 
 ```text

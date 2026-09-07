@@ -16,6 +16,8 @@ Codex task
 
 MCP owns fixed tool envelopes, Codex annotations, session selection, and error serialization. Operation schemas and execution exist only in the UE Operation Registry. Protocol `2.0.0` makes `blueprint_validate` and `blueprint_verify` asynchronous read jobs. The Editor binds a random `127.0.0.1` port and publishes a current-user-only descriptor with a per-start token, executable identity, and an atomically refreshed five-second heartbeat. Clients reject exited, non-`UE4Editor.exe`, and heartbeat-stale descriptors, then select by canonical `.uproject` or exact `editorSessionId`.
 
+The Editor module registers a Slate modal-loop callback independently of RPC and the ordinary Editor ticker. It recognizes native `SCSVImportOptions` content plus one package-path label in the documented legacy report directories, then invokes `OnCancel` so the import factory reports cancellation. It does not change directory watchers or close other dialogs. The callback is removed on module shutdown; each active modal window is inspected once. `CodexUnrealBlueprint.Editor.DocumentImportGuard` covers path boundaries and the real import factory's modal cancellation, consecutive reports, ordinary imports, and unrelated windows in an interactive Editor.
+
 Asset inspection has three explicit layers:
 
 Structure hashes inspect SCS components only for Actor-derived Blueprints. Widget and animation Blueprints contribute their specialized trees without requiring an Actor construction script.

@@ -20,6 +20,8 @@ Codex task
 
 MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序列化；具体 operation Schema 与执行逻辑只存在于 UE Operation Registry。协议 `2.0.0` 将 `blueprint_validate` 和 `blueprint_verify` 定义为异步只读 Job。Editor 在随机 `127.0.0.1` 端口发布仅当前用户可读的会话描述、每次启动生成的 token、可执行文件身份和每 5 秒原子刷新的心跳。客户端排除进程退出、非 `UE4Editor.exe` 或心跳过期的描述，再按规范化 `.uproject` 或 `editorSessionId` 精确选择。
 
+Editor 模块独立于 RPC 和普通 Editor Tick 注册 Slate 模态循环回调。仅当内容为原生 `SCSVImportOptions`、唯一 Package 路径属于文档列出的历史报告目录时，调用 `OnCancel`，让导入工厂明确返回取消；不修改目录监控设置，也不关闭其他弹窗。模块卸载时移除回调，每个当前模态窗口只检查一次。`CodexUnrealBlueprint.Editor.DocumentImportGuard` 在交互式 Editor 验证路径边界、真实导入工厂取消、连续报告、正常导入和无关窗口。
+
 资产检查明确分为三层：
 
 - `generic`：对任意可加载 Unreal 资产读取身份、反射属性、依赖和引用。

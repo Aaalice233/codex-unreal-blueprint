@@ -1,4 +1,5 @@
 #include "CodexUnrealBlueprintEditorModule.h"
+#include "CodexDocumentImportGuard.h"
 
 #include "Containers/Ticker.h"
 #include "EditorStyleSet.h"
@@ -223,6 +224,8 @@ void FCodexUnrealBlueprintEditorModule::StartupModule()
     }
 
     StatusState = MakeShared<CodexUnrealBlueprint::FEditorStatusState, ESPMode::ThreadSafe>();
+    DocumentImportGuard = MakeShared<CodexUnrealBlueprint::FDocumentImportGuard>();
+    DocumentImportGuard->Start();
     const FStatusStateWeakPtr WeakStatusState = StatusState;
 
     FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
@@ -255,6 +258,11 @@ void FCodexUnrealBlueprintEditorModule::StartupModule()
 
 void FCodexUnrealBlueprintEditorModule::ShutdownModule()
 {
+    if (DocumentImportGuard.IsValid())
+    {
+        DocumentImportGuard->Stop();
+        DocumentImportGuard.Reset();
+    }
     if (StatusTickerHandle.IsValid())
     {
         FTicker::GetCoreTicker().RemoveTicker(StatusTickerHandle);

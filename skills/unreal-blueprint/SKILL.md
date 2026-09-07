@@ -10,6 +10,12 @@ metadata:
 
 Use this package's twelve tools. Do not require or install a separate `inspect-unreal-uassets` skill.
 
+## Reports and accidental imports
+
+Write reports, raw JSON/CSV inspection output, screenshots, and helper scripts to the workspace's designated document directory, always outside every Unreal `Content` directory. If no workspace directory is specified, use an OS temporary directory outside the project. Never create an inspection-report folder under `Content/Lua`: UE can watch these files and open DataTable import dialogs.
+
+The Editor plugin cancels only native `SCSVImportOptions` dialogs whose single displayed package path is beneath `/Game/Lua/_codex_asset_reports/`, `/Game/Lua/_codex_log_reports/`, `/Game/_codex_asset_reports/`, or `/Game/_codex_log_reports/`. It calls native Cancel during the Slate modal loop and logs the package path; it does not import a DataTable or modify auto-reimport settings. Ordinary imports, save prompts, and unrecognized dialogs remain under user control. This is recovery for legacy report locations, not permission to keep writing reports there.
+
 ## Install or update
 
 When the tools are unavailable, the protocol or plugin version is stale, or the user asks to install/update this package:

@@ -8,6 +8,7 @@ class FExtender;
 namespace CodexUnrealBlueprint
 {
     struct FEditorStatusState;
+    class FDocumentImportGuard;
 }
 
 class CODEXUNREALBLUEPRINTEDITOR_API FCodexUnrealBlueprintEditorModule : public IModuleInterface
@@ -20,4 +21,5 @@ private:
     TSharedPtr<FExtender> StatusBarExtender;
     TSharedPtr<CodexUnrealBlueprint::FEditorStatusState, ESPMode::ThreadSafe> StatusState;
     FDelegateHandle StatusTickerHandle;
+    TSharedPtr<CodexUnrealBlueprint::FDocumentImportGuard> DocumentImportGuard;
 };
