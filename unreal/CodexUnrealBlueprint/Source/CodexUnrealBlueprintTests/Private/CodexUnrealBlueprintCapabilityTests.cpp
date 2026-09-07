@@ -40,6 +40,7 @@
 #include "CodexUnrealBlueprintGraphOperations.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintInspection.h"
+#include "CodexUnrealBlueprintPreflight.h"
 #include "CodexUnrealBlueprintVerification.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
 #include "CodexUnrealBlueprintProtocol.h"
@@ -1128,6 +1129,40 @@ bool FCodexUmgRenameTransactionE2ETest::RunTest(const FString& Parameters)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexUmgAndAnimE2ETest,
     "CodexUnrealBlueprint.E2E.PublicEntry.SpecializedUmgAndAnimBlueprint", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexDuplicateSourceReadOnlyTest,
+    "CodexUnrealBlueprint.E2E.PublicEntry.DuplicateSourceReadOnly", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexDuplicateSourceReadOnlyTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("DuplicateSourceReadOnly"));
+    UWidgetBlueprint* Source = Fixture.CreateWidgetBlueprint(TEXT("WBP_Source"));
+    if (!Source) return false;
+    FKismetEditorUtilities::CompileBlueprint(Source);
+    FString Filename;
+    if (!Fixture.Save(Source, Filename)) return false;
+    Source->GetOutermost()->SetDirtyFlag(false);
+    const FString SourcePackage = Source->GetOutermost()->GetName();
+    const FString SourcePath = Source->GetPathName();
+    const FString Destination = FPackageName::GetLongPackagePath(SourcePackage) + TEXT("/WBP_Copy");
+    FString Before, After, HashError;
+    FWritePreflight::ComputePackageStateHash(SourcePackage, Before, HashError);
+    TSharedRef<FJsonObject> Duplicate = FScopedFixture::Operation(TEXT("asset.duplicate"));
+    Duplicate->RemoveField(TEXT("op"));
+    Duplicate->SetStringField(TEXT("assetPath"), SourcePath);
+    Duplicate->SetStringField(TEXT("destinationPath"), Destination);
+    FJobSnapshot Snapshot; FString Error;
+    if (!TestTrue(TEXT("duplicate succeeds"), DispatchOperations(Fixture.GetRunId() + TEXT("_copy"), {Duplicate}, Snapshot, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    FWritePreflight::ComputePackageStateHash(SourcePackage, After, HashError);
+    TestEqual(TEXT("source file remains byte-identical"), Before, After);
+    TestFalse(TEXT("source remains clean"), Source->GetOutermost()->IsDirty());
+    TestNotNull(TEXT("duplicate is a saved WidgetBlueprint"), LoadObject<UWidgetBlueprint>(nullptr, *(Destination + TEXT(".WBP_Copy"))));
+    return true;
+}
 
 bool FCodexUmgAndAnimE2ETest::RunTest(const FString& Parameters)
 {

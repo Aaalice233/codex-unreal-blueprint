@@ -20,6 +20,8 @@ Asset inspection has three explicit layers:
 
 Structure hashes inspect SCS components only for Actor-derived Blueprints. Widget and animation Blueprints contribute their specialized trees without requiring an Actor construction script.
 
+`asset.duplicate` 将源资产作为只读影响包检查，仅将目标资产列入写入与保存集合，不编译或重存源资产及其引用者。`DuplicateSourceReadOnly` 在真实 Editor 中通过源文件哈希与 dirty 状态验证这一约束。
+
 UMG writes accept both the exact object path and its package path, matching registry preflight. Transaction snapshots exclude generated classes and their default objects because the compiler owns their reconstruction. An operation failure is logged before attempting Undo. Reload verification permits reference-only packages to remain unloaded; loaded references must still be clean.
 
 - `generic` reads identity, reflected properties, dependencies, and referencers for any loadable Unreal asset.

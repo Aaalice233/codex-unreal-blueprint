@@ -295,14 +295,16 @@ namespace CodexUnrealBlueprint
         }
 
         void AddPackageImpact(const FString& ObjectOrPackagePath, const bool bCompile,
-            FPreflightRequest& Request, const int32 OperationIndex, TArray<FString>* OutPackageNames = nullptr)
+            FPreflightRequest& Request, const int32 OperationIndex, TArray<FString>* OutPackageNames = nullptr,
+            const bool bDirectWrite = true)
         {
             const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectOrPackagePath);
             if (!FPackageName::IsValidLongPackageName(PackageName, true)) return;
-            Request.TargetPackageNames.AddUnique(PackageName);
+            if (bDirectWrite) Request.TargetPackageNames.AddUnique(PackageName);
+            else Request.AdditionalImpactPackageNames.AddUnique(PackageName);
             Request.OperationIndicesByPackage.FindOrAdd(PackageName).AddUnique(OperationIndex);
             if (bCompile) Request.CompilePackageNames.AddUnique(PackageName);
-            if (OutPackageNames) OutPackageNames->AddUnique(PackageName);
+            if (OutPackageNames && bDirectWrite) OutPackageNames->AddUnique(PackageName);
         }
 
         enum class EBlueprintReferencerCompileScope : uint8
@@ -390,7 +392,7 @@ namespace CodexUnrealBlueprint
         {
             // A class-default value change does not alter the Blueprint's public structure. Loading and compiling
             // every referencer can synchronously pull an entire project's hard-reference graph into the Editor.
-            return OperationName != TEXT("asset.classDefault.set");
+            return OperationName != TEXT("asset.classDefault.set") && OperationName != TEXT("asset.duplicate");
         }
 
         EBlueprintReferencerCompileScope ReferencerCompileScope(const FString& OperationName)
@@ -475,7 +477,9 @@ namespace CodexUnrealBlueprint
                 FString Path;
                 if (Operation->TryGetStringField(OperationName == TEXT("asset.create") ? TEXT("packagePath") : TEXT("assetPath"), Path))
                 {
-                    AddPackageImpact(Path, OperationName != TEXT("asset.delete"), Request, Index);
+                    // 复制只读取源资产，编译和保存仅作用于目标。
+                    const bool bDuplicate = OperationName == TEXT("asset.duplicate");
+                    AddPackageImpact(Path, OperationName != TEXT("asset.delete") && !bDuplicate, Request, Index, nullptr, !bDuplicate);
                     if (OperationName != TEXT("asset.create") && RequiresReferencerImpacts(OperationName))
                         AddReferencerImpacts(Path, Request, Index, ReferencerCompileScope(OperationName));
                 }
@@ -516,7 +520,8 @@ namespace CodexUnrealBlueprint
                 FPreflightRequest RuntimeImpacts;
                 if (!AssetPath.IsEmpty())
                 {
-                    AddPackageImpact(AssetPath, Name != TEXT("asset.delete"), RuntimeImpacts, Index, &ImpactPackageNames);
+                    const bool bDuplicate = Name == TEXT("asset.duplicate");
+                    AddPackageImpact(AssetPath, Name != TEXT("asset.delete") && !bDuplicate, RuntimeImpacts, Index, &ImpactPackageNames, !bDuplicate);
                     if (RequiresReferencerImpacts(Name))
                         AddReferencerImpacts(AssetPath, RuntimeImpacts, Index, ReferencerCompileScope(Name), &ImpactPackageNames);
                 }
