@@ -1111,7 +1111,7 @@ bool FCodexUmgRenameTransactionE2ETest::RunTest(const FString& Parameters)
     // 已编译生成类上的失败事务必须可撤销而不崩溃。
     Rename->SetStringField(TEXT("widget"), TEXT("MissingWidget"));
     Rename->SetStringField(TEXT("newName"), TEXT("bp_NeverCreated"));
-    AddExpectedError(TEXT("LogCodexUnrealBlueprintWrite: Error: Request="), EAutomationExpectedErrorFlags::Contains, 1);
+    AddExpectedError(TEXT("phase=modify code=UmgWidgetNotFound"), EAutomationExpectedErrorFlags::Contains, 1);
     TestFalse(TEXT("missing widget reports an operation failure"),
         DispatchOperations(Fixture.GetRunId() + TEXT("_failure"), {Rename}, Snapshot, Error));
     TestTrue(TEXT("failed transaction retains generated class"), IsValid(Widget->GeneratedClass));
