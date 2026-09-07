@@ -177,13 +177,13 @@ namespace CodexUnrealBlueprint
                 if (Log.NumErrors > 0 || !Blueprint->IsUpToDate()) { OutError = FProtocolError::Make(EErrorCode::VerificationFailed, TEXT("Blueprint compilation failed during verification."), TEXT("FKismetEditorUtilities::CompileBlueprint")); OutError.AssetPath = Blueprint->GetPathName(); OutError.CompilerMessages = Messages; return false; }
                 if (Progress) Progress(TEXT("Compile"), Index + 1, Blueprints.Num(), Blueprint->GetPathName());
             }
-            TSharedRef<FJsonObject> Snapshot = MakeShared<FJsonObject>(); FProtocolError InspectError;
-            if (!FBlueprintInspection::Inspect(Blueprint->GetPathName(), {}, 0, 500, Snapshot, InspectError)) { OutError = InspectError; return false; }
-            Item->SetStringField(TEXT("structureHash"), Snapshot->GetStringField(TEXT("structureHash"))); Item->SetBoolField(TEXT("compiled"), bCompile); Item->SetBoolField(TEXT("reloaded"), bReload);
+            FString StructureHash; FProtocolError InspectError;
+            if (!FBlueprintInspection::ComputeStructureHash(Blueprint->GetPathName(), StructureHash, InspectError)) { OutError = InspectError; return false; }
+            Item->SetStringField(TEXT("structureHash"), StructureHash); Item->SetBoolField(TEXT("compiled"), bCompile); Item->SetBoolField(TEXT("reloaded"), bReload);
             const TSharedPtr<FJsonObject> Expected = ExpectationsByAsset.FindRef(AssetPaths[Index]);
             if (Expected.IsValid())
             {
-                FString ExpectedHash; if (Expected->TryGetStringField(TEXT("structureHash"), ExpectedHash) && !ExpectedHash.Equals(Snapshot->GetStringField(TEXT("structureHash")), ESearchCase::IgnoreCase)) { OutError = FProtocolError::Make(EErrorCode::VerificationFailed, TEXT("Blueprint structureHash does not match the expectation."), TEXT("FBlueprintVerification::Verify")); OutError.AssetPath = Blueprint->GetPathName(); return false; }
+                FString ExpectedHash; if (Expected->TryGetStringField(TEXT("structureHash"), ExpectedHash) && !ExpectedHash.Equals(StructureHash, ESearchCase::IgnoreCase)) { OutError = FProtocolError::Make(EErrorCode::VerificationFailed, TEXT("Blueprint structureHash does not match the expectation."), TEXT("FBlueprintVerification::Verify")); OutError.AssetPath = Blueprint->GetPathName(); return false; }
                 bool ExpectedDirty = false;
                 if (Expected->TryGetBoolField(TEXT("packageDirty"), ExpectedDirty) && Blueprint->GetOutermost()->IsDirty() != ExpectedDirty)
                     return FailExpectation(OutError, Blueprint->GetPathName(), Index, TEXT(""), TEXT("packageDirty"),

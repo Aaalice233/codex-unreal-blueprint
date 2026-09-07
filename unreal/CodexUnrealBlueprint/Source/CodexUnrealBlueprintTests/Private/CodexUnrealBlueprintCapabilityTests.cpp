@@ -40,6 +40,7 @@
 #include "CodexUnrealBlueprintGraphOperations.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintInspection.h"
+#include "CodexUnrealBlueprintVerification.h"
 #include "CodexUnrealBlueprintOperationRegistry.h"
 #include "CodexUnrealBlueprintProtocol.h"
 #include "CodexUnrealBlueprintService.h"
@@ -1116,6 +1117,12 @@ bool FCodexUmgRenameTransactionE2ETest::RunTest(const FString& Parameters)
         DispatchOperations(Fixture.GetRunId() + TEXT("_failure"), {Rename}, Snapshot, Error));
     TestTrue(TEXT("failed transaction retains generated class"), IsValid(Widget->GeneratedClass));
     TestNotNull(TEXT("failed transaction retains original widget"), Widget->WidgetTree->FindWidget(TEXT("bp_Root")));
+    // 独立验证也必须支持没有 Actor 组件树的 UMG。
+    Widget->GetOutermost()->SetDirtyFlag(false);
+    TSharedRef<FJsonObject> Verified = MakeShared<FJsonObject>();
+    FProtocolError VerifyError;
+    TestTrue(TEXT("independent UMG verification reloads and compiles"),
+        FBlueprintVerification::Verify({PackagePath}, {}, true, true, Verified, VerifyError));
     return true;
 }
 

@@ -285,6 +285,7 @@ bool FCodexPipelineCompileFailureTest::RunTest(const FString& Parameters)
         OutMessages.Add(FString::Printf(TEXT("Injected compiler failure for %s."), *Target->GetPathName()));
         return false;
     };
+    AddExpectedError(TEXT("phase=compile code=write.compileFailed"), EAutomationExpectedErrorFlags::Contains, 1);
     TArray<FString> Phases;
     const FWritePipelineResult Result = FWritePipeline::Execute(Request, MakeProgress(Phases));
     TestFalse(TEXT("compile failure cannot report success"), Result.bSucceeded);
