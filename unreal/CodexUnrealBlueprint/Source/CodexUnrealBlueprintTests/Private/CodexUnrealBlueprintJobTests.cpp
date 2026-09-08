@@ -9,6 +9,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "CodexUnrealBlueprintEditorSafeDispatcher.h"
 #include "CodexUnrealBlueprintJobs.h"
 #include "CodexUnrealBlueprintRequestJournal.h"
@@ -116,6 +118,54 @@ bool FCodexRequestJournalIdempotencyTest::RunTest(const FString& Parameters)
         Restarted.Accept(TEXT("request-complete"), TEXT("blueprint.apply"), MakeParams(TEXT("request-complete"), 8),
             TEXT("unused-conflict-job"), Conflict, Error), ERequestAcceptResult::Conflict);
     TestEqual(TEXT("conflict has stable code"), Error.Code, EErrorCode::RequestConflict);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexViewportErrorRecoveryTest,
+    "CodexUnrealBlueprint.Idempotency.ViewportErrorRecovery", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexViewportErrorRecoveryTest::RunTest(const FString& Parameters)
+{
+    for (const EErrorCode Code : {EErrorCode::ViewportNotFound, EErrorCode::ViewportUnavailable, EErrorCode::ViewportCaptureFailed})
+    {
+        const FString Directory = MakeJournalTestDirectory();
+        FScopedDirectory DirectoryCleanup(Directory);
+        FRequestJournal Journal(Directory);
+        FProtocolError Error; FRequestJournalRecord Record;
+        if (!TestTrue(TEXT("viewport error journal initializes"), Journal.Initialize(Error))) return false;
+        TestEqual(TEXT("viewport request accepted"), Journal.Accept(TEXT("viewport-error"), TEXT("unreal.viewport.control"),
+            MakeParams(TEXT("viewport-error"), 1), TEXT("viewport-job"), Record, Error), ERequestAcceptResult::Accepted);
+        const FProtocolError ViewportError = FProtocolError::Make(Code, TEXT("original viewport failure"), TEXT("ViewportTest"));
+        TestNotEqual(TEXT("viewport error has a display name"), FString(LexToString(Code)), FString(TEXT("Unknown")));
+        TestTrue(TEXT("viewport failure persisted"), Journal.MarkTerminal(TEXT("viewport-error"), nullptr, ViewportError, EJobPhase::Failed, Record, Error));
+        TArray<FString> Files; IFileManager::Get().FindFiles(Files, *FPaths::Combine(Directory, TEXT("*.json")), true, false);
+        if (!TestEqual(TEXT("one isolated journal record"), Files.Num(), 1)) return false;
+        const FString Path = FPaths::Combine(Directory, Files[0]);
+        auto Json = Record.ToJson();
+        auto WriteFixture = [&]()
+        {
+            FString Text; FJsonSerializer::Serialize(Json, TJsonWriterFactory<>::Create(&Text));
+            return FFileHelper::SaveStringToFile(Text, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+        };
+        Json->GetObjectField(TEXT("error"))->SetStringField(TEXT("code"), TEXT("Unknown"));
+        TestTrue(TEXT("fixture preserves stable code with an older display name"), WriteFixture());
+        FRequestJournal Restarted(Directory); FRequestJournalRecord Recovered;
+        if (!TestTrue(TEXT("restart accepts known stable error code"), Restarted.Initialize(Error))) return false;
+        TestTrue(TEXT("original failure remains queryable"), Restarted.Query(TEXT("viewport-error"), Recovered, Error));
+        if (!TestTrue(TEXT("recovered request remains failed"), Recovered.Error.IsSet())) return false;
+        TestEqual(TEXT("error identity survives restart"), Recovered.Error.GetValue().Code, Code);
+        TestEqual(TEXT("original error message preserved"), Recovered.Error.GetValue().Message, ViewportError.Message);
+        Json->GetObjectField(TEXT("error"))->SetStringField(TEXT("code"), LexToString(Code));
+        Json->GetObjectField(TEXT("error"))->RemoveField(TEXT("stableCode"));
+        TestTrue(TEXT("legacy fixture written"), WriteFixture());
+        FRequestJournal Legacy(Directory);
+        TestTrue(TEXT("legacy records without stableCode still load"), Legacy.Initialize(Error));
+        Json->GetObjectField(TEXT("error"))->SetStringField(TEXT("stableCode"), TEXT("INVALID_FUTURE_CODE"));
+        TestTrue(TEXT("unknown stable-code fixture written"), WriteFixture());
+        FRequestJournal Unknown(Directory);
+        TestFalse(TEXT("unknown stable code is not silently treated as success"), Unknown.Initialize(Error));
+        TestEqual(TEXT("invalid record remains explicit corruption"), Error.Code, EErrorCode::JournalCorrupt);
+    }
     return true;
 }
 

@@ -10,6 +10,16 @@ const sessionSchema = z.object({
   uproject: z.string().min(1).optional()
 }).strict().optional();
 const jsonObjectSchema = z.record(z.unknown());
+const vectorSchema = z.object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() }).strict();
+const cameraSchema = z.object({
+  location: vectorSchema.optional(),
+  rotation: z.object({ pitch: z.number().finite(), yaw: z.number().finite(), roll: z.number().finite() }).strict().optional(),
+  lookAt: vectorSchema.optional(),
+  orthoZoom: z.number().finite().positive().optional(),
+  fieldOfView: z.number().finite().gt(0).lt(180).optional()
+}).strict().refine((value) => Object.keys(value).length > 0, "camera must not be empty");
+const viewportControlBase = { session: sessionSchema, requestId: z.string().trim().min(1).max(128) };
+const viewportTarget = { ...viewportControlBase, viewportId: z.string().min(1) };
 const operationSchema = z.object({ operation: z.string().min(1) }).passthrough();
 const assetModeSchema = z.enum(["auto", "editor", "offline"]).optional();
 const assetFacetsSchema = z.array(z.enum(["support", "generic", "properties", "dependencies", "referencers", "specialized"])).max(16).optional();
@@ -35,6 +45,19 @@ const offlineStagingSchema = z.object({
 export const toolSchemas = {
   unreal_status: z.object({ session: sessionSchema }).strict(),
   unreal_doctor: z.object({ session: sessionSchema }).strict(),
+  unreal_viewport_list: z.object({ session: sessionSchema }).strict(),
+  unreal_viewport_capture: z.object({
+    session: sessionSchema, viewportId: z.string().min(1), outputPath: z.string().min(1)
+  }).strict(),
+  unreal_viewport_control: z.discriminatedUnion("action", [
+    z.object({ ...viewportControlBase, action: z.literal("open"), assetPath: z.string().min(1) }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("activate") }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("set_camera"), camera: cameraSchema }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("pan"), delta: vectorSchema }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("orbit"), yaw: z.number().finite(), pitch: z.number().finite() }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("zoom"), factor: z.number().finite().positive() }).strict(),
+    z.object({ ...viewportTarget, action: z.literal("frame"), boundsMin: vectorSchema, boundsMax: vectorSchema }).strict()
+  ]),
   unreal_search: z.object({
     session: sessionSchema,
     query: z.string().min(1),
@@ -133,6 +156,9 @@ export const toolSchemas = {
 export const toolDescriptions: Record<ToolName, string> = {
   unreal_status: "Discover or select the exact UE4.27 Editor and return session, PIE, source-control, dirty-package, and queue status.",
   unreal_doctor: "Check the UE plugin, protocol, project configuration, port, permissions, and build environment.",
+  unreal_viewport_list: "List native 3D Editor viewport IDs, visibility, owning assets when identifiable, dimensions, and camera state. Excludes UMG Designer, graphs, and PIE.",
+  unreal_viewport_capture: "Capture actual pixels from an explicit visible 3D Editor viewport to a new absolute PNG path outside Content directories; returns the image inline.",
+  unreal_viewport_control: "Open an asset editor, activate a viewport, set/restore its camera, pan, orbit, zoom, or frame bounds. Presentation only; never saves assets. Requires requestId; wait with blueprint_job. Returns previousCamera for restoration.",
   unreal_search: "Search Blueprint assets, classes, members, properties, graph actions, or operations with pagination.",
   unreal_asset_inspect: "Inspect any Unreal asset through layered capabilities; offline-only assets can be parsed from a rolling temporary cache without restarting the Editor.",
   unreal_asset_compare: "Compare two Unreal assets through the Editor or a rolling temporary offline cache and return structured changes.",
@@ -146,7 +172,7 @@ export const toolDescriptions: Record<ToolName, string> = {
 };
 
 export const toolAnnotations = Object.fromEntries(TOOL_NAMES.map((name) => [name, {
-  readOnlyHint: !["blueprint_apply", "blueprint_job"].includes(name),
+  readOnlyHint: !["blueprint_apply", "blueprint_job", "unreal_viewport_control"].includes(name),
   destructiveHint: name === "blueprint_apply",
   openWorldHint: false
 }])) as Record<ToolName, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }>;
@@ -299,7 +325,7 @@ export async function invokeTool(name: ToolName, parameters: unknown, signal?: A
       }
     };
   }
-  if (name === "blueprint_apply") {
+  if (name === "blueprint_apply" || name === "unreal_viewport_control") {
     const selected = await selectSession(session, {}, signal);
     return invokeWriteWithRecovery(
       { session: { editorSessionId: selected.editorSessionId }, ...(signal === undefined ? {} : { signal }) },

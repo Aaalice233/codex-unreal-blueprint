@@ -1,7 +1,8 @@
 # v1.0.0 release gate
 
 - [ ] `npm run check`, Codex plugin validation, and Skill validation pass.
-- [ ] A stdio round trip enumerates twelve MCP tools and verifies schemas, annotations, text, and `structuredContent`.
+- [ ] A stdio round trip enumerates fifteen MCP tools and verifies schemas, annotations, text, and `structuredContent`.
+- [ ] Native Editor viewport capture returns real PNG image content; camera movement, zoom, orbit, framing, restoration, and error boundaries pass in UE4.27 without modifying asset packages.
 - [ ] Layered asset inspection verifies generic assets, Blueprint/UMG/AnimBlueprint, AnimMontage, Material/Material Instance, and Niagara System fixtures in Editor mode.
 - [ ] Bundled offline inspection, comparison, and bounded referencer search work without an Editor or any separately installed skill.
 - [ ] Automated tests cover session ambiguity, timeout, cancellation, `requestId` recovery, and partial-failure lists.

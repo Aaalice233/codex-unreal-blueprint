@@ -10,6 +10,9 @@ describe("Codex MCP tool contract", () => {
       "unreal_asset_inspect",
       "unreal_asset_compare",
       "unreal_asset_referencers",
+      "unreal_viewport_list",
+      "unreal_viewport_capture",
+      "unreal_viewport_control",
       "blueprint_capabilities",
       "blueprint_inspect",
       "blueprint_validate",
@@ -17,7 +20,7 @@ describe("Codex MCP tool contract", () => {
       "blueprint_job",
       "blueprint_verify"
     ]);
-    expect(new Set(TOOL_NAMES).size).toBe(12);
+    expect(new Set(TOOL_NAMES).size).toBe(15);
   });
 
   it("maps every tool onto the current C++ namespaced RPC method", () => {
@@ -28,6 +31,9 @@ describe("Codex MCP tool contract", () => {
       "unreal.asset.inspect",
       "unreal.asset.compare",
       "unreal.asset.referencers",
+      "unreal.viewport.list",
+      "unreal.viewport.capture",
+      "unreal.viewport.control",
       "blueprint.capabilities",
       "blueprint.inspect",
       "blueprint.validate",

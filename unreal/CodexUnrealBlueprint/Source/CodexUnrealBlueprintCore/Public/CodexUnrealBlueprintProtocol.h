@@ -54,6 +54,9 @@ namespace CodexUnrealBlueprint
         UnknownOperation,
         TypeMismatch,
         AssetNotFound,
+        ViewportNotFound,
+        ViewportUnavailable,
+        ViewportCaptureFailed,
         ValidationFailed,
         VerificationFailed,
         NotImplemented,
@@ -66,6 +69,7 @@ namespace CodexUnrealBlueprint
     CODEXUNREALBLUEPRINTCORE_API const TCHAR* LexToString(EServiceState State);
     CODEXUNREALBLUEPRINTCORE_API const TCHAR* LexToString(EJobPhase Phase);
     CODEXUNREALBLUEPRINTCORE_API const TCHAR* LexToString(EErrorCode Code);
+    CODEXUNREALBLUEPRINTCORE_API const TCHAR* LexToStableString(EErrorCode Code);
 
     struct CODEXUNREALBLUEPRINTCORE_API FProtocolError
     {

@@ -37,7 +37,7 @@ export class UnrealClient {
   }
 
   async invoke(toolName: ToolName, params: JsonObject, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<JsonValue> {
-    if (toolName === "blueprint_apply") assertWriteRequestId(params, toolName);
+    if (toolName === "blueprint_apply" || toolName === "unreal_viewport_control") assertWriteRequestId(params, toolName);
     if (toolName === "blueprint_job" && params.action === "cancel" && typeof params.jobId !== "string") {
       throw new UnrealBlueprintError(ERROR_CODES.INVALID_ARGUMENT, "blueprint_job cancel requires jobId");
     }
@@ -103,7 +103,7 @@ export interface RecoverWriteOptions {
   readonly queryTimeoutMs?: number;
 }
 
-export type WriteToolName = "blueprint_apply";
+export type WriteToolName = "blueprint_apply" | "unreal_viewport_control";
 
 function requireRecoveryInteger(value: number, name: string, minimum: number, maximum: number): number {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {

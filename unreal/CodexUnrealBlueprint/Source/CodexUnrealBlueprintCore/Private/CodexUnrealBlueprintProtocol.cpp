@@ -30,6 +30,9 @@ namespace CodexUnrealBlueprint
             case EErrorCode::UnknownOperation: return TEXT("UNKNOWN_OPERATION");
             case EErrorCode::TypeMismatch: return TEXT("TYPE_MISMATCH");
             case EErrorCode::AssetNotFound: return TEXT("ASSET_NOT_FOUND");
+            case EErrorCode::ViewportNotFound: return TEXT("VIEWPORT_NOT_FOUND");
+            case EErrorCode::ViewportUnavailable: return TEXT("VIEWPORT_UNAVAILABLE");
+            case EErrorCode::ViewportCaptureFailed: return TEXT("VIEWPORT_CAPTURE_FAILED");
             case EErrorCode::ValidationFailed: return TEXT("VALIDATION_FAILED");
             case EErrorCode::VerificationFailed: return TEXT("VERIFICATION_FAILED");
             case EErrorCode::NotImplemented: return TEXT("NOT_IMPLEMENTED");
@@ -49,6 +52,11 @@ namespace CodexUnrealBlueprint
                 || Code == EErrorCode::JobQueueFull
                 || Code == EErrorCode::TransportQueueFull;
         }
+    }
+
+    const TCHAR* LexToStableString(const EErrorCode Code)
+    {
+        return StableCodeToString(Code);
     }
 
     const TCHAR* LexToString(const EServiceState State)
@@ -107,6 +115,9 @@ namespace CodexUnrealBlueprint
         case EErrorCode::UnknownOperation: return TEXT("UnknownOperation");
         case EErrorCode::TypeMismatch: return TEXT("TypeMismatch");
         case EErrorCode::AssetNotFound: return TEXT("AssetNotFound");
+        case EErrorCode::ViewportNotFound: return TEXT("ViewportNotFound");
+        case EErrorCode::ViewportUnavailable: return TEXT("ViewportUnavailable");
+        case EErrorCode::ViewportCaptureFailed: return TEXT("ViewportCaptureFailed");
         case EErrorCode::ValidationFailed: return TEXT("ValidationFailed");
         case EErrorCode::VerificationFailed: return TEXT("VerificationFailed");
         case EErrorCode::NotImplemented: return TEXT("NotImplemented");
@@ -131,7 +142,7 @@ namespace CodexUnrealBlueprint
     {
         TSharedRef<FJsonObject> Data = MakeShared<FJsonObject>();
         Data->SetStringField(TEXT("code"), LexToString(Code));
-        Data->SetStringField(TEXT("stableCode"), StableCodeToString(Code));
+        Data->SetStringField(TEXT("stableCode"), LexToStableString(Code));
         Data->SetBoolField(TEXT("retryable"), IsRetryable(Code));
         Data->SetStringField(TEXT("message"), Message);
         Data->SetStringField(TEXT("ueCallsite"), UECallsite);
@@ -291,6 +302,9 @@ namespace CodexUnrealBlueprint
             case EErrorCode::JobQueueFull: JsonRpcCode = -32016; break;
             case EErrorCode::WriteLeaseExpired: JsonRpcCode = -32017; break;
             case EErrorCode::TransportQueueFull: JsonRpcCode = -32018; break;
+            case EErrorCode::ViewportNotFound: JsonRpcCode = -32019; break;
+            case EErrorCode::ViewportUnavailable: JsonRpcCode = -32020; break;
+            case EErrorCode::ViewportCaptureFailed: JsonRpcCode = -32021; break;
             default: break;
             }
             JsonRpcError->SetNumberField(TEXT("code"), JsonRpcCode);

@@ -1,7 +1,8 @@
 # v1.0.0 发布门槛
 
 - [ ] `npm run check`、Codex plugin validator 和 Skill validator 通过。
-- [ ] stdio round trip 枚举十二个 MCP tools，并验证 Schema、annotations、文本与 `structuredContent`。
+- [ ] stdio round trip 枚举十五个 MCP tools，并验证 Schema、annotations、文本与 `structuredContent`。
+- [ ] 原生 Editor 视口截图返回真实 PNG 图像；镜头移动、缩放、环绕、框选、恢复与错误边界在 UE4.27 中通过，且不修改资产 Package。
 - [ ] Editor 模式用 Fixture 验证通用资产、Blueprint/UMG/AnimBlueprint、AnimMontage、Material/Material Instance 和 Niagara System 的分层检查。
 - [ ] 随包离线检查、比较和有界引用查找在没有 Editor、没有额外 skill 时正常工作。
 - [ ] 会话歧义、超时、取消、`requestId` 恢复和部分失败清单有自动测试。

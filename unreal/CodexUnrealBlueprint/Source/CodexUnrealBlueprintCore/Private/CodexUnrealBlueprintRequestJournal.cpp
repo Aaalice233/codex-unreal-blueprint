@@ -130,11 +130,15 @@ namespace CodexUnrealBlueprint
             {
                 return false;
             }
+            FString StableCode;
+            const bool bHasStableCode = Json->HasField(TEXT("stableCode"));
+            if (bHasStableCode && !Json->TryGetStringField(TEXT("stableCode"), StableCode)) return false;
             bool bKnownCode = false;
             for (int32 Raw = static_cast<int32>(EErrorCode::None); Raw <= static_cast<int32>(EErrorCode::InternalError); ++Raw)
             {
                 const EErrorCode Candidate = static_cast<EErrorCode>(Raw);
-                if (Code == LexToString(Candidate))
+                // Stable protocol identifiers survive display-name changes across plugin upgrades.
+                if (bHasStableCode ? StableCode == LexToStableString(Candidate) : Code == LexToString(Candidate))
                 {
                     OutError.Code = Candidate;
                     bKnownCode = true;

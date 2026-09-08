@@ -22,6 +22,8 @@ MCP 负责固定工具 envelope、Codex annotations、会话选择和错误序�
 
 Editor 模块独立于 RPC 和普通 Editor Tick 注册 Slate 模态循环回调。仅当内容为原生 `SCSVImportOptions`、唯一 Package 路径属于文档列出的历史报告目录时，调用 `OnCancel`，让导入工厂明确返回取消；不修改目录监控设置，也不关闭其他弹窗。模块卸载时移除回调，每个当前模态窗口只检查一次。`CodexUnrealBlueprint.Editor.DocumentImportGuard` 在交互式 Editor 验证路径边界、真实导入工厂取消、连续报告、正常导入和无关窗口。
 
+原生视口表现由 TCP 与 MCP 共用的 Core 服务实现。服务为 `FEditorViewportClient` 分配跟随 Slate 生命周期的 ID，读取真实渲染目标像素并控制镜头。PNG 写在 Content 外，由 MCP 返回图片，避免把 base64 放进有帧大小限制的 Editor RPC。镜头、打开和激活请求复用 Journal Job 及恢复机制；这些操作只改变编辑器表现，不进入资产 Operation Registry 或编译保存流程。结果返回之前的镜头以供显式恢复，其他 Slate 画布不属于这项能力。
+
 资产检查明确分为三层：
 
 - `generic`：对任意可加载 Unreal 资产读取身份、反射属性、依赖和引用。

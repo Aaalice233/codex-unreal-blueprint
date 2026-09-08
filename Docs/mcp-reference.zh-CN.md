@@ -10,12 +10,35 @@
 | `unreal_asset_inspect` | 以 `auto`、`editor` 或 `offline` 分层检查任意 Unreal 资产 | 只读 |
 | `unreal_asset_compare` | 在线或离线比较两个资产 | 只读 |
 | `unreal_asset_referencers` | 查找 Asset Registry 或序列化二进制引用 | 只读 |
+| `unreal_viewport_list` | 列出原生 3D 视口、所属资产、尺寸与镜头状态 | 只读 |
+| `unreal_viewport_capture` | 将可见视口保存为 PNG 并直接返回截图 | 只读 |
+| `unreal_viewport_control` | 打开或激活视口、移动镜头、取景与恢复镜头 | 非破坏性、非只读 |
 | `blueprint_capabilities` | 从 Operation Registry 读取 Schema 和示例 | 只读 |
 | `blueprint_inspect` | 分页读取 facet、稳定 ID、编译状态和结构 hash | 只读 |
 | `blueprint_validate` | 启动幂等的内存预检 Job（必填 `requestId`） | 只读 |
 | `blueprint_apply` | 使用唯一 `requestId` 启动自动事务写入 | 破坏性 |
 | `blueprint_job` | 按 `jobId`/`requestId` 查询、等待或取消 | 非只读 |
 | `blueprint_verify` | 启动幂等的编译、重载和断言 Job（必填 `requestId`） | 只读 |
+
+## 视口截图与镜头控制
+
+先通过 `unreal_viewport_list` 选择明确的 `viewportId`。视口关闭或 Editor 重启后 ID 失效。能确认归属时，`assetPaths` 返回对应资产路径；其他预览可结合 `widgetType`、`windowTitle`、`visible` 和尺寸辨认。支持关卡及原生 3D 资产预览，包括 Blueprint 组件预览；不包含 UMG Designer、节点图、PIE 或系统窗口。Blueprint 中的 WidgetComponent 属于可截图的 3D 场景。
+
+`unreal_viewport_capture` 要求 `viewportId` 和绝对 `.png` 文件路径 `outputPath`。使用任务报告目录中的新文件名，禁止写入 Unreal `Content` 目录或覆盖已有文件。工具按当前镜头绘制后读取真实渲染目标像素。结果包含 `evidence: "editor-viewport-pixels"`、镜头、尺寸及 `filePath`；MCP 校验 PNG 元数据后同时返回原生图片。视口关闭、不可见或尺寸为零时明确失败。截图包含渲染画面，不包含外侧工具栏。
+
+`unreal_viewport_control` 必须携带唯一 `requestId`。通过 `blueprint_job` 等待 Journal Job 成功后再截图；响应丢失时查询原请求，不重复移动镜头。镜头控制不会修改、编译或保存资产。
+
+| action | 参数 | 含义 |
+|---|---|---|
+| `open` | `assetPath` | 打开原生资产编辑器，再从返回列表选择对应视口。 |
+| `activate` | `viewportId` | 打开已关闭但可用的 Blueprint 组件预览标签页，再激活所在标签页和窗口。 |
+| `set_camera` | `viewportId`、`camera` | 设置 `location`、`rotation`、`lookAt`、`orthoZoom`、`fieldOfView` 中的一项或多项；传回完整 `previousCamera` 即可恢复。 |
+| `pan` | `viewportId`、`delta: {x,y,z}` | 按镜头的右、上、前方向平移，使用 Unreal 单位，同时移动观察中心。 |
+| `orbit` | `viewportId`、`yaw`、`pitch` | 在透视视口中绕观察中心旋转，单位为度。 |
+| `zoom` | `viewportId`、正数 `factor` | 小于 1 拉近，大于 1 拉远；正交视口调整缩放范围。 |
+| `frame` | `viewportId`、`boundsMin`、`boundsMax` | 立即对齐指定的世界坐标包围盒。 |
+
+向量采用 `{x,y,z}`，旋转采用 `{pitch,yaw,roll}`。透视旋转或缩放前，观察中心必须与镜头位置不同。FOV 必须大于 0 且小于 180 度。每次镜头结果返回当前 `camera` 与调整前的 `previousCamera`，恢复需要显式调用。截图和控制前结束 PIE；打开或激活标签页后，让 Editor 完成布局，再通过 list 确认渲染尺寸。
 
 ## 分层资产检查
 

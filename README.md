@@ -119,9 +119,10 @@ pwsh ./scripts/setup.ps1 -CodexOnly
 
 - **环境与搜索**：`unreal_status`、`unreal_doctor`、`unreal_search`
 - **通用资产**：`unreal_asset_inspect`、`unreal_asset_compare`、`unreal_asset_referencers`
+- **视口检查**：`unreal_viewport_list`、`unreal_viewport_capture`、`unreal_viewport_control`，支持原生 3D 视口 PNG 截图、镜头平移、旋转、缩放、取景与恢复。
 - **Blueprint 工作流**：`blueprint_capabilities`、`blueprint_inspect`、`blueprint_validate`、`blueprint_apply`、`blueprint_job`、`blueprint_verify`
 
-协议 `2.0.0` 将 validate、apply、verify 统一为 Job：携带 `requestId` 提交一次，再通过 `blueprint_job` 查询或等待。批量组件、精确属性检查和结构断言继续复用同一套十二工具，不增加同义工具。
+协议 `2.0.0` 将 validate、apply、verify 统一为 Job：携带 `requestId` 提交一次，再通过 `blueprint_job` 查询或等待。视口镜头控制也复用 Journal Job，但不会修改或保存资产；截图直接返回真实像素，不代替 PIE 或头显验证。
 
 ## 📚 文档
 

@@ -12,6 +12,7 @@
 #include "CodexUnrealBlueprintSourceControl.h"
 #include "CodexUnrealBlueprintVerification.h"
 #include "CodexUnrealBlueprintWritePipeline.h"
+#include "CodexUnrealViewport.h"
 
 #include "Editor.h"
 #include "HAL/PlatformProcess.h"
@@ -47,7 +48,7 @@ namespace CodexUnrealBlueprint
 
         bool IsWriteRequest(const FProtocolRequest& Request)
         {
-            return Request.Method == TEXT("blueprint.apply");
+            return Request.Method == TEXT("blueprint.apply") || Request.Method == TEXT("unreal.viewport.control");
         }
 
         FProtocolResponse RequestIdRequired(const FProtocolRequest& Request)
@@ -217,6 +218,21 @@ namespace CodexUnrealBlueprint
         if (Request.Method == TEXT("unreal.asset.inspect")) return RunOnGameThread([this, &Request]() { return InspectAsset(Request); });
         if (Request.Method == TEXT("unreal.asset.compare")) return RunOnGameThread([this, &Request]() { return CompareAssets(Request); });
         if (Request.Method == TEXT("unreal.asset.referencers")) return RunOnGameThread([this, &Request]() { return FindAssetReferencers(Request); });
+        if (Request.Method == TEXT("unreal.viewport.list")) return RunOnGameThread([&Request]()
+        {
+            FProtocolResponse Response;
+            if (!RejectUnknownParams(Request, {}, Response)) return Response;
+            Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+            Response.Result = FViewportService::List(); return Response;
+        });
+        if (Request.Method == TEXT("unreal.viewport.capture")) return RunOnGameThread([&Request]()
+        {
+            FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+            FProtocolError Error;
+            if (!FViewportService::Capture(Request.Params.IsValid() ? Request.Params.ToSharedRef() : MakeShared<FJsonObject>(), Response.Result, Error)) Response.Error = Error;
+            return Response;
+        });
+        if (Request.Method == TEXT("unreal.viewport.control")) return ControlViewport(Request);
         if (Request.Method == TEXT("blueprint.capabilities")) return Capabilities(Request);
         if (Request.Method == TEXT("blueprint.inspect")) return RunOnGameThread([this, &Request]() { return Inspect(Request); });
         if (Request.Method == TEXT("blueprint.validate")) return Validate(Request);
@@ -316,6 +332,8 @@ namespace CodexUnrealBlueprint
         TArray<TSharedPtr<FJsonValue>> Methods;
         const TCHAR* Implemented[] = {TEXT("unreal.status"),TEXT("unreal.doctor"),TEXT("unreal.search"),TEXT("unreal.asset.inspect"),TEXT("unreal.asset.compare"),TEXT("unreal.asset.referencers"),TEXT("blueprint.capabilities"),TEXT("blueprint.inspect"),TEXT("blueprint.validate"),TEXT("blueprint.apply"),TEXT("blueprint.job"),TEXT("blueprint.verify")};
         for (const TCHAR* Method : Implemented) Methods.Add(MakeShared<FJsonValueString>(Method));
+        for (const TCHAR* Method : {TEXT("unreal.viewport.list"), TEXT("unreal.viewport.capture"), TEXT("unreal.viewport.control")})
+            Methods.Add(MakeShared<FJsonValueString>(Method));
         FRequestJournalStatus JournalStatus;
         FProtocolError JournalError;
         if (FRequestJournal::Get().GetStatus(JournalStatus, JournalError))
@@ -686,6 +704,29 @@ namespace CodexUnrealBlueprint
             }, Snapshot, Error, bReplay);
         if (!bStarted) return ErrorResponse(Request, Error);
         FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue; Response.Result = Snapshot.ToJson(); Response.Result->SetBoolField(TEXT("replay"), bReplay); return Response;
+    }
+
+    FProtocolResponse FCoreService::ControlViewport(const FProtocolRequest& Request) const
+    {
+        FString RequestId; Request.Params->TryGetStringField(TEXT("requestId"), RequestId);
+        FJobSnapshot Snapshot; FProtocolError Error; bool bReplay = false;
+        const bool bStarted = FJobManager::Get().StartWrite(Request.Method, RequestId, Request.Params,
+            [Params = Request.Params](FJobExecutionContext& Context, TSharedPtr<FJsonObject>& Result, FProtocolError& JobError)
+            {
+                if (!Context.EnterPhase(EJobPhase::Modify, false, TEXT("Updating Editor viewport presentation."))) return false;
+                const FProtocolResponse Response = RunOnGameThread([&Params]()
+                {
+                    FProtocolResponse Inner; FProtocolError InnerError;
+                    if (!FViewportService::Control(Params.ToSharedRef(), Inner.Result, InnerError)) Inner.Error = InnerError;
+                    return Inner;
+                });
+                Result = Response.Result;
+                if (Response.Error.IsSet()) { JobError = Response.Error.GetValue(); return false; }
+                return true;
+            }, Snapshot, Error, bReplay);
+        if (!bStarted) return ErrorResponse(Request, Error);
+        FProtocolResponse Response; Response.Id = Request.Id; Response.IdJsonValue = Request.IdJsonValue;
+        Response.Result = Snapshot.ToJson(); Response.Result->SetBoolField(TEXT("replay"), bReplay); return Response;
     }
 
     FProtocolResponse FCoreService::Verify(const FProtocolRequest& Request) const

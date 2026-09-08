@@ -8,7 +8,7 @@ metadata:
 
 # Unreal assets and Blueprint automation
 
-Use this package's twelve tools. Do not require or install a separate `inspect-unreal-uassets` skill.
+Use this package's asset, Blueprint, and viewport tools. Do not require or install a separate `inspect-unreal-uassets` skill.
 
 ## Reports and accidental imports
 
@@ -32,7 +32,7 @@ When the tools are unavailable, the protocol or plugin version is stale, or the 
 
    Add `-CodexExecutable C:/path/to/codex.exe` only when automatic Codex CLI discovery fails. Use `-Scope engine` only when the user explicitly wants an Engine-wide UE plugin instead of the default project installation. When the installed UE plugin is already current and the update changes only the Skill, MCP server, or bundled offline parser, add `-CodexOnly`; this runs checks and updates the managed Codex plugin while leaving UE files and the running Editor untouched.
 4. Let the script run the applicable checks, synchronize managed files, and register the personal Marketplace entry. A full run also builds and installs the UE4.27 Win64 plugin. Do not replace this with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
-5. After a full installation, restart Unreal Editor and create a new Codex task. After `-CodexOnly`, keep the Editor running and only create a new Codex task so the updated Skill and all twelve MCP tools are loaded. Re-run the applicable command for later updates; no separate asset-inspection skill is needed.
+5. After a full installation, restart Unreal Editor and create a new Codex task. After `-CodexOnly`, keep the Editor running and only create a new Codex task so the updated Skill and MCP tools are loaded. Re-run the applicable command for later updates; no separate asset-inspection skill is needed.
 
 Verify both paths after installation:
 
@@ -56,7 +56,17 @@ Use `unreal_asset_compare` for before/after or sibling assets. Use `unreal_asset
 
 Specialized Editor inspection covers Blueprint/UMG/AnimBlueprint, AnimMontage sections/slots/notifies, Material parameters/expressions, and Niagara exposed parameters/emitters. Offline inspection additionally reconstructs locally available Blueprint inheritance/component trees and extracts UMG/Niagara serialized evidence where UAssetAPI can deserialize it.
 
-## Blueprint write workflow
+## Visual verification through Editor viewports
+
+For visible 3D layout, clipping, scale, or placement changes, inspect properties and capture the actual native viewport instead of treating compile success as visual proof. Call `unreal_viewport_list` and select the exact session-local `viewportId` using its asset paths, widget type, window title, visibility, and dimensions. Native level and asset preview viewports are supported, including WidgetComponents displayed inside Blueprint previews. UMG Designer, node graphs, PIE, and OS windows are not supported by these tools.
+
+Use `unreal_viewport_control` with a fresh `requestId` to `open` an asset editor, `activate` its viewport, `set_camera`, `pan`, `orbit`, `zoom`, or `frame` explicit bounds. Wait for the returned job with `blueprint_job`. Preserve `previousCamera` from the first camera adjustment and restore it with `set_camera` after verification unless the user requested the new view. Camera changes do not alter asset transforms or save assets; uncertain responses must be queried, never replayed.
+
+`pan.delta` uses camera-local right/up/forward axes in Unreal units. `orbit.yaw` and `orbit.pitch` are degree increments around the camera's `lookAt` point. `zoom.factor` below 1 moves closer; above 1 moves farther. `frame.boundsMin` and `frame.boundsMax` are world-space bounds. Vectors use `{x,y,z}`; rotations use `{pitch,yaw,roll}`. Use `set_camera.camera` to set any of `location`, `rotation`, `lookAt`, `orthoZoom`, or `fieldOfView`, or pass the full saved camera to restore it.
+
+Capture with `unreal_viewport_capture` using an absolute, new PNG `outputPath` in the workspace's report directory outside Content. The tool returns the real viewport image inline and as a local file. Inspect that image before claiming the layout is correct. Hidden, closed, zero-size, or unsupported viewports require explicit handling; do not substitute a thumbnail or simulated image. These are Editor preview pixels, not PIE or headset validation.
+
+## Transactional Blueprint writes
 
 1. Call `unreal_status` or `unreal_doctor`, then select the exact `.uproject` and `editorSessionId`; never choose the first Editor when multiple sessions match.
 2. Call `unreal_search`, then `blueprint_capabilities` for the affected domain. The returned Operation Registry schema is authoritative; do not invent operation names or fields.

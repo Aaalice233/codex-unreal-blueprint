@@ -18,6 +18,8 @@ MCP owns fixed tool envelopes, Codex annotations, session selection, and error s
 
 The Editor module registers a Slate modal-loop callback independently of RPC and the ordinary Editor ticker. It recognizes native `SCSVImportOptions` content plus one package-path label in the documented legacy report directories, then invokes `OnCancel` so the import factory reports cancellation. It does not change directory watchers or close other dialogs. The callback is removed on module shutdown; each active modal window is inspected once. `CodexUnrealBlueprint.Editor.DocumentImportGuard` covers path boundaries and the real import factory's modal cancellation, consecutive reports, ordinary imports, and unrelated windows in an interactive Editor.
 
+Native viewport presentation is a separate Core service shared by TCP and MCP. It uses Slate-lifetime IDs for `FEditorViewportClient`, reads real render-target pixels, and controls cameras. PNGs are written outside Content; MCP adds image content without sending base64 through the bounded Editor RPC transport. Camera/open/activate requests reuse journaled jobs and recovery, but bypass the asset Operation Registry and compile/save pipeline because they only change Editor presentation. Camera results include their previous pose for explicit restoration. Other Slate surfaces are outside this capability.
+
 Asset inspection has three explicit layers:
 
 Structure hashes inspect SCS components only for Actor-derived Blueprints. Widget and animation Blueprints contribute their specialized trees without requiring an Actor construction script.

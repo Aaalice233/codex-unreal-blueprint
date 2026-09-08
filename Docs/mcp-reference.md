@@ -10,12 +10,35 @@ Every tool accepts optional `session: { editorSessionId?, uproject? }`. An exact
 | `unreal_asset_inspect` | Layered inspection for any Unreal asset in `auto`, `editor`, or `offline` mode | read-only |
 | `unreal_asset_compare` | Compare two assets online or offline | read-only |
 | `unreal_asset_referencers` | Find Asset Registry or serialized binary referencers | read-only |
+| `unreal_viewport_list` | List native 3D viewports, owning assets, dimensions, and camera state | read-only |
+| `unreal_viewport_capture` | Save a visible viewport as PNG and return its pixels inline | read-only |
+| `unreal_viewport_control` | Open/activate a viewport and move, frame, or restore its camera | non-destructive, non-read-only |
 | `blueprint_capabilities` | Read schemas and examples from the Operation Registry | read-only |
 | `blueprint_inspect` | Page facets, stable IDs, compile state, and structure hashes | read-only |
 | `blueprint_validate` | Start an idempotent in-memory preflight job (`requestId` required) | read-only |
 | `blueprint_apply` | Start an automatic transactional write with a unique `requestId` | destructive |
 | `blueprint_job` | Query, wait for, or cancel by `jobId`/`requestId` | non-read-only |
 | `blueprint_verify` | Start an idempotent compile/reload/assert job (`requestId` required) | read-only |
+
+## Viewport screenshots and camera control
+
+Select an explicit `viewportId` from `unreal_viewport_list`. IDs expire when the Slate viewport closes or the Editor restarts. `assetPaths` reports verified ownership when available; `widgetType`, `windowTitle`, `visible`, and dimensions identify other native previews. Supported surfaces are level and native 3D asset viewports, including Blueprint component previews. UMG Designer, node graphs, PIE, and operating-system windows are excluded. WidgetComponents inside Blueprint previews are part of the captured 3D scene.
+
+`unreal_viewport_capture` requires `viewportId` and an absolute `.png` `outputPath`. Use a new filename in the task's report directory, outside Unreal `Content` directories. The tool draws the current camera, reads actual render-target pixels, and writes without overwriting existing files. Results include `evidence: "editor-viewport-pixels"`, camera, dimensions, and `filePath`; MCP adds native image content after checking PNG metadata. Hidden, closed, and zero-size viewports fail explicitly. Images show the rendered scene, excluding surrounding toolbars.
+
+`unreal_viewport_control` requires a unique `requestId`. Wait for its journaled job through `blueprint_job` before capture. Lost responses use request-journal recovery without replaying movement. Camera controls do not modify, compile, or save assets.
+
+| action | Parameters | Meaning |
+|---|---|---|
+| `open` | `assetPath` | Open the native asset editor, then select its viewport from the returned list. |
+| `activate` | `viewportId` | Open a closed Blueprint component preview tab when available, then activate the containing tabs and window. |
+| `set_camera` | `viewportId`, `camera` | Set any of `location`, `rotation`, `lookAt`, `orthoZoom`, `fieldOfView`. Passing a previous result's full `previousCamera` restores the pose. |
+| `pan` | `viewportId`, `delta: {x,y,z}` | Move along camera-local right/up/forward axes in Unreal units, moving the look-at point too. |
+| `orbit` | `viewportId`, `yaw`, `pitch` | Rotate by degrees around the current look-at point; perspective only. |
+| `zoom` | `viewportId`, positive `factor` | Below 1 moves closer; above 1 moves farther. Orthographic views scale their zoom extent. |
+| `frame` | `viewportId`, `boundsMin`, `boundsMax` | Instantly fit an explicit world-space bounding box. |
+
+Vectors use `{x,y,z}` and rotations use `{pitch,yaw,roll}`. Perspective orbit/zoom needs a look-at point distinct from the camera location. FOV must be strictly between 0 and 180 degrees. Each camera result returns the current `camera` and `previousCamera` for explicit restoration. Stop PIE before capture/control. Allow a newly opened/activated tab to finish layout; a subsequent list reports its render dimensions.
 
 ## Layered asset inspection
 

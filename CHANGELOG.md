@@ -6,6 +6,9 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
+- Added native 3D Editor viewport discovery, PNG capture with inline MCP images, and journaled camera pan/orbit/zoom/framing with explicit pose restoration. / 新增原生 3D Editor 视口发现、PNG 截图及 MCP 内联图片，并支持带请求追踪的镜头平移、旋转、缩放、取景和显式恢复。
+- Restored journal failures by stable protocol error codes across display-name changes, while retaining explicit rejection of unknown codes. / 请求日志按稳定错误码恢复失败记录，兼容显示名称变化，并明确拒绝未知错误码。
+
 - Prevented report-driven Editor interruptions by documenting output outside Unreal Content and cancelling native DataTable import dialogs only for legacy Codex report directories, with interactive import-factory regression tests. / 明确报告输出必须位于 Unreal Content 之外，仅自动取消历史 Codex 报告目录触发的原生 DataTable 导入弹窗，并增加交互式导入工厂回归测试。
 
 Migrated the product to a Codex plugin with a bundled stdio MCP server and fully renamed UE plugin. / 已迁移为包含 stdio MCP server 的 Codex plugin，并完整重命名 UE plugin。

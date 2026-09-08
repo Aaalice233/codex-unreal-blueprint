@@ -87,7 +87,10 @@ describe("job client", () => {
     }
   });
 
-  it("queries the journal instead of replaying after a lost write response", async () => {
+  it.each([
+    ["blueprint_apply", "blueprint.apply"],
+    ["unreal_viewport_control", "unreal.viewport.control"]
+  ] as const)("queries the journal instead of replaying %s after a lost response", async (tool, method) => {
     let applyCount = 0;
     server = createServer((socket) => {
       const decoder = new FrameDecoder();
@@ -97,12 +100,12 @@ describe("job client", () => {
           if (!("method" in request) || !("id" in request)) continue;
           if (request.method === "session.authenticate") {
             socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: { authenticated: true, protocolVersion: "2.0.0" } }));
-          } else if (request.method === "blueprint.apply") {
+          } else if (request.method === method) {
             applyCount += 1;
             socket.destroy();
           } else if (request.method === "blueprint.request") {
             socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: {
-              version: 1, requestId: "lost-response", method: "blueprint.apply", paramsHash: "hash", jobId: "job-lost",
+              version: 1, requestId: "lost-response", method, paramsHash: "hash", jobId: "job-lost",
               state: "terminal", acceptedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:01Z",
               interrupted: false, recoveryRequired: false, result: { changed: true }
             } }));
@@ -123,8 +126,9 @@ describe("job client", () => {
 
     await expect(invokeWriteWithRecovery(
       { session: { editorSessionId: "recovery" }, discovery: { sessionsDirectory: directory, isProcessAlive: () => true } },
-      "blueprint_apply",
-      { requestId: "lost-response", operations: [] },
+      tool,
+      tool === "blueprint_apply" ? { requestId: "lost-response", operations: [] }
+        : { requestId: "lost-response", viewportId: "viewport-1", action: "zoom", factor: 0.5 },
       { queryAttempts: 2, queryDelayMs: 1 }
     )).resolves.toMatchObject({ state: "terminal", result: { changed: true } });
     expect(applyCount).toBe(1);

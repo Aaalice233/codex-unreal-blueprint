@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { pathToFileURL } from "node:url";
 import { TOOL_NAMES, type ToolName } from "../shared/contracts.js";
 import { failedToolResult, invokeTool, toolAnnotations, toolDescriptions, toolSchemas } from "./tools.js";
+import { successfulToolResult } from "./results.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: "codex-unreal-blueprint", version: "1.0.0" }, {
@@ -17,10 +18,7 @@ export function createMcpServer(): McpServer {
     }, async (parameters: unknown, extra: { signal: AbortSignal }) => {
       try {
         const result = await invokeTool(name as ToolName, parameters, extra.signal);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: { result }
-        };
+        return await successfulToolResult(name, result);
       } catch (error) {
         return failedToolResult(error);
       }

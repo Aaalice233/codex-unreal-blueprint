@@ -27,6 +27,7 @@ namespace CodexUnrealBlueprint
         FProtocolResponse Inspect(const FProtocolRequest& Request) const;
         FProtocolResponse Validate(const FProtocolRequest& Request) const;
         FProtocolResponse Apply(const FProtocolRequest& Request) const;
+        FProtocolResponse ControlViewport(const FProtocolRequest& Request) const;
         FProtocolResponse GetJob(const FProtocolRequest& Request) const;
         FProtocolResponse CancelJob(const FProtocolRequest& Request) const;
         FProtocolResponse Verify(const FProtocolRequest& Request) const;

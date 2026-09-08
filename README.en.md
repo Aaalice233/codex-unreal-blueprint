@@ -117,9 +117,10 @@ No Editor restart is needed in this case; create a new Codex task to load the up
 
 - **Environment and search:** `unreal_status`, `unreal_doctor`, `unreal_search`
 - **General assets:** `unreal_asset_inspect`, `unreal_asset_compare`, `unreal_asset_referencers`
+- **Viewport inspection:** `unreal_viewport_list`, `unreal_viewport_capture`, `unreal_viewport_control` for native 3D PNG screenshots, camera pan/orbit/zoom, framing, and pose restoration.
 - **Blueprint workflow:** `blueprint_capabilities`, `blueprint_inspect`, `blueprint_validate`, `blueprint_apply`, `blueprint_job`, `blueprint_verify`
 
-Protocol `2.0.0` makes validate, apply, and verify job-based: submit once with `requestId`, then query or wait through `blueprint_job`. Component ranges, filtered property inspection, and structural assertions remain operations/facets of the same twelve-tool workflow.
+Protocol `2.0.0` makes validate, apply, and verify job-based: submit once with `requestId`, then query or wait through `blueprint_job`. Viewport controls reuse journaled jobs without modifying or saving assets. Captures return actual Editor pixels, not PIE or headset validation.
 
 ## 📚 Documentation
 

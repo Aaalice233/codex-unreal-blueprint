@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("Codex stdio MCP server", () => {
-  it("publishes the twelve tools with the required annotations over a real stdio round trip", async () => {
+  it("publishes every tool with the required annotations over a real stdio round trip", async () => {
     await mkdir(testState, { recursive: true });
     const childEnvironment = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
     childEnvironment.LOCALAPPDATA = testState;

@@ -244,5 +244,5 @@ $codexFiles = Get-SourceFiles $codexStage $codexIncludes
 Sync-ManagedDirectory $settings.codexPluginTarget $codexFiles
 $marketplaceName = Update-PersonalMarketplace $settings
 Invoke-Checked $settings.codexExecutable @("plugin", "add", "codex-unreal-blueprint@$marketplaceName")
-if ($CodexOnly) { Write-Step "Codex 侧安装完成。Unreal Editor 无需重启；请新建 Codex task 以加载 Skill 和十二个 MCP tools。" }
-else { Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和十二个 MCP tools。" }
+if ($CodexOnly) { Write-Step "Codex 侧安装完成。Unreal Editor 无需重启；请新建 Codex task 以加载 Skill 和十五个 MCP tools。" }
+else { Write-Step "安装完成。请重启 Unreal Editor，并新建 Codex task 以加载 Skill 和十五个 MCP tools。" }
