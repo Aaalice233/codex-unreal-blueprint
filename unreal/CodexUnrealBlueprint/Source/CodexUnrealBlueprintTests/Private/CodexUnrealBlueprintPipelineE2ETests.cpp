@@ -286,7 +286,6 @@ bool FCodexPipelineReferenceBecomesDirtyTest::RunTest(const FString& Parameters)
         if (Phase == TEXT("verify")) Reference->GetOutermost()->SetDirtyFlag(true);
         return true;
     };
-    AddExpectedError(TEXT("phase=verify code=write.reloadVerifyFailed"), EAutomationExpectedErrorFlags::Contains, 1);
     const FWritePipelineResult Result = FWritePipeline::Execute(Request, Progress);
     TestFalse(TEXT("new dirty reference remains an explicit verification failure"), Result.bSucceeded);
     TestEqual(TEXT("original verification error retained"), Result.Error.Code, FString(TEXT("write.reloadVerifyFailed")));
