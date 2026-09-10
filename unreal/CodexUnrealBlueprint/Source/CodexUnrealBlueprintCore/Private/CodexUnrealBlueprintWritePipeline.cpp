@@ -933,10 +933,11 @@ namespace CodexUnrealBlueprint
             UPackage* Package = FindPackage(nullptr, *PackageResult.PackageName);
             FString HashError;
             const FString ReloadedHash = PackageResult.bDirectWrite ? ResolveHash(Request, PackageResult.PackageName, HashError) : FString();
-            // 仅检查引用的包允许保持未加载；已加载包仍须保持干净。
+            // 引用检查不保存或重载包，必须保留用户在预检前已有的未保存状态。
             const bool bMetadataOnly = PackageResult.bReferenceCheck
                 && !PackageResult.bDirectWrite && !PackageResult.bCompileCheck;
-            bool bBlueprintsValid = Package ? !Package->IsDirty() : bMetadataOnly;
+            const bool bExpectedDirty = bMetadataOnly && Preflight.ImpactPackages[Index].bWasDirty;
+            bool bBlueprintsValid = Package ? Package->IsDirty() == bExpectedDirty : bMetadataOnly;
             if (Package != nullptr)
             {
                 TArray<UObject*> Objects;

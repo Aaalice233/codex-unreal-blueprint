@@ -22,8 +22,8 @@ namespace
     {
     public:
         FAddBooleanVariableOperation(UBlueprint* InBlueprint, const int32 InIndex, const FName InName,
-            FString InReadOnlyFilename = FString(), UBlueprint* InCompileCheck = nullptr)
-            : Blueprint(InBlueprint), CompileCheck(InCompileCheck), Index(InIndex), Name(InName), ReadOnlyFilename(MoveTemp(InReadOnlyFilename)) {}
+            FString InReadOnlyFilename = FString(), UBlueprint* InCompileCheck = nullptr, UBlueprint* InReferenceCheck = nullptr)
+            : Blueprint(InBlueprint), CompileCheck(InCompileCheck), ReferenceCheck(InReferenceCheck), Index(InIndex), Name(InName), ReadOnlyFilename(MoveTemp(InReadOnlyFilename)) {}
 
         virtual int32 GetOperationIndex() const override { return Index; }
 
@@ -39,6 +39,8 @@ namespace
                 Request.AdditionalImpactPackageNames.AddUnique(CompileCheck->GetOutermost()->GetName());
                 Request.CompilePackageNames.AddUnique(CompileCheck->GetOutermost()->GetName());
             }
+            if (ReferenceCheck.IsValid())
+                Request.AdditionalImpactPackageNames.AddUnique(ReferenceCheck->GetOutermost()->GetName());
         }
 
         virtual bool Apply(FWriteMutationContext& Context, FWritePipelineError& OutError) override
@@ -94,6 +96,7 @@ namespace
     private:
         TWeakObjectPtr<UBlueprint> Blueprint;
         TWeakObjectPtr<UBlueprint> CompileCheck;
+        TWeakObjectPtr<UBlueprint> ReferenceCheck;
         int32 Index;
         FName Name;
         FString ReadOnlyFilename;
@@ -219,6 +222,74 @@ bool FCodexPipelineDirectSaveScopeIntegrationTest::RunTest(const FString& Parame
     TestEqual(TEXT("compile-only dependency file stays byte-identical"), DependencyBefore, DependencyAfter);
     UPackage* ReloadedDependency = FindPackage(nullptr, *DependencyPackageName);
     TestTrue(TEXT("compile-only dependency is restored clean"), ReloadedDependency && !ReloadedDependency->IsDirty());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexPipelineDirtyReferencePreservedTest,
+    "CodexUnrealBlueprint.Integration.Pipeline.DirtyReferencePreserved", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexPipelineDirtyReferencePreservedTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("DirtyReference"));
+    UBlueprint* Direct = Fixture.CreateBlueprint(TEXT("BP_Direct"));
+    UBlueprint* Reference = Fixture.CreateBlueprint(TEXT("BP_Reference"));
+    FString DirectFilename, ReferenceFilename;
+    if (!Direct || !Reference) return false;
+    FKismetEditorUtilities::CompileBlueprint(Direct); FKismetEditorUtilities::CompileBlueprint(Reference);
+    if (!Fixture.Save(Direct, DirectFilename) || !Fixture.Save(Reference, ReferenceFilename)) return false;
+    Direct->GetOutermost()->SetDirtyFlag(false); Reference->GetOutermost()->SetDirtyFlag(false);
+    const FString ReferencePackage = Reference->GetOutermost()->GetName();
+    FString BeforeHash, AfterHash, HashError;
+    if (!FWritePreflight::ComputePackageStateHash(ReferencePackage, BeforeHash, HashError)) return false;
+    FEdGraphPinType FlagType;
+    FlagType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+    FBlueprintEditorUtils::AddMemberVariable(Reference, TEXT("UserUnsavedFlag"), FlagType);
+    TestTrue(TEXT("reference has real unsaved changes before preflight"), Reference->GetOutermost()->IsDirty());
+    FWritePipelineRequest Request;
+    Request.RequestId = Fixture.GetRunId();
+    Request.Operations.Add(MakeShared<FAddBooleanVariableOperation>(Direct, 0, TEXT("AddedFlag"), FString(), nullptr, Reference));
+    TArray<FString> Phases;
+    const FWritePipelineResult Result = FWritePipeline::Execute(Request, MakeProgress(Phases));
+    TestTrue(TEXT("existing dirty reference does not fail direct write verification"), Result.bSucceeded);
+    const FWritePackageResult* ReferenceResult = Result.Packages.FindByPredicate([ReferencePackage](const FWritePackageResult& Package)
+        { return Package.PackageName == ReferencePackage; });
+    TestTrue(TEXT("reference remains read-only in pipeline"), ReferenceResult && ReferenceResult->bReferenceCheck
+        && !ReferenceResult->bDirectWrite && !ReferenceResult->bCompileCheck && !ReferenceResult->bSaveAttempted
+        && !ReferenceResult->bReloaded && ReferenceResult->bVerified);
+    TestTrue(TEXT("user's unsaved member survives"), Reference->GetOutermost()->IsDirty()
+        && FBlueprintEditorUtils::FindNewVariableIndex(Reference, TEXT("UserUnsavedFlag")) != INDEX_NONE);
+    FWritePreflight::ComputePackageStateHash(ReferencePackage, AfterHash, HashError);
+    TestEqual(TEXT("reference file was not saved"), BeforeHash, AfterHash);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCodexPipelineReferenceBecomesDirtyTest,
+    "CodexUnrealBlueprint.FaultInjection.Pipeline.ReferenceBecomesDirty", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCodexPipelineReferenceBecomesDirtyTest::RunTest(const FString& Parameters)
+{
+    FScopedFixture Fixture(TEXT("ReferenceBecomesDirty"));
+    UBlueprint* Direct = Fixture.CreateBlueprint(TEXT("BP_Direct"));
+    UBlueprint* Reference = Fixture.CreateBlueprint(TEXT("BP_Reference"));
+    FString DirectFilename, ReferenceFilename;
+    if (!Direct || !Reference) return false;
+    FKismetEditorUtilities::CompileBlueprint(Direct); FKismetEditorUtilities::CompileBlueprint(Reference);
+    if (!Fixture.Save(Direct, DirectFilename) || !Fixture.Save(Reference, ReferenceFilename)) return false;
+    Direct->GetOutermost()->SetDirtyFlag(false); Reference->GetOutermost()->SetDirtyFlag(false);
+    FWritePipelineRequest Request;
+    Request.RequestId = Fixture.GetRunId();
+    Request.Operations.Add(MakeShared<FAddBooleanVariableOperation>(Direct, 0, TEXT("AddedFlag"), FString(), nullptr, Reference));
+    TArray<FString> Phases;
+    FWritePipelineProgress Progress = MakeProgress(Phases);
+    Progress.EnterPhase = [Reference](const FString& Phase, bool bSafe, const FString& Message)
+    {
+        if (Phase == TEXT("verify")) Reference->GetOutermost()->SetDirtyFlag(true);
+        return true;
+    };
+    AddExpectedError(TEXT("phase=verify code=write.reloadVerifyFailed"), EAutomationExpectedErrorFlags::Contains, 1);
+    const FWritePipelineResult Result = FWritePipeline::Execute(Request, Progress);
+    TestFalse(TEXT("new dirty reference remains an explicit verification failure"), Result.bSucceeded);
+    TestEqual(TEXT("original verification error retained"), Result.Error.Code, FString(TEXT("write.reloadVerifyFailed")));
     return true;
 }
 

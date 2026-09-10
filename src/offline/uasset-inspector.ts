@@ -90,7 +90,8 @@ function restoreSourcePaths(value: JsonValue, asset: StagedAssetCopy): JsonValue
 }
 
 async function parseOfflineAsset(asset: StagedAssetCopy, searchTerms: string[]): Promise<JsonValue> {
-  const arguments_ = ["-Path", asset.stagedFilePath, "-Format", "json", "-Search", ...(searchTerms.length > 0 ? searchTerms : [""])];
+  // PowerShell -File receives a string array as one argument; the script splits comma-separated terms.
+  const arguments_ = ["-Path", asset.stagedFilePath, "-Format", "json", "-Search", searchTerms.join(",")];
   if (asset.stagedContentRoot !== undefined) arguments_.push("-ContentRoot", asset.stagedContentRoot);
   const output = await runPowerShell(arguments_);
   try {
