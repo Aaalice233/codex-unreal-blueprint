@@ -6,7 +6,7 @@
 
 [简体中文](README.md) · [繁體中文](README.zh-TW.md) · **English**
 
-A local UE4.27 Win64 plugin for Codex. It safely automates Blueprints while the Editor is running and inspects `.uasset` and `.umap` files when the Editor is closed. The Skill, MCP server, UE Editor plugin, and offline parser ship together—no separate `inspect-unreal-uassets` skill is required.
+A local UE4.26/4.27 Win64 plugin for Codex. It safely automates Blueprints while the Editor is running and inspects `.uasset` and `.umap` files when the Editor is closed. The Skill, MCP server, UE Editor plugin, and offline parser ship together—no separate `inspect-unreal-uassets` skill is required.
 
 ## ✨ Highlights
 
@@ -84,7 +84,7 @@ strict preflight → UE transaction → modify → compile → save → reload �
 
 ## 🚀 Installation
 
-Requirements: Windows, UE4.27, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, and Codex Desktop/CLI.
+Requirements: Windows, UE4.26/4.27, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, and Codex Desktop/CLI.
 
 For the first installation or a UE plugin update, close the target Editor and run:
 
@@ -95,7 +95,9 @@ pwsh ./scripts/setup.ps1 `
   -EngineRoot E:/UE_4.27
 ```
 
-The installer runs checks, builds the UE4.27 Win64 plugin, synchronizes managed files, and installs the personal Codex plugin. Restart the Editor and create a new Codex task afterward.
+The installer runs checks, builds the Win64 plugin with the selected engine, synchronizes managed files, and installs the personal Codex plugin. Restart the Editor and create a new Codex task afterward.
+
+For UE4.26, pass the matching `-UProject` and `-EngineRoot E:/UE_4.26`. Setup validates `Build.version` against numeric project `EngineAssociation` values and isolates output in `artifacts/plugin-build-4.26` or `artifacts/plugin-build-4.27`. Source is shared; DLLs must be rebuilt for each engine and must not be copied between them.
 
 If the UE plugin is already current and only the Skill, MCP server, or offline parser changed, keep the Editor open and run:
 
@@ -135,7 +137,7 @@ Protocol `2.0.0` makes validate, apply, and verify job-based: submit once with `
 - Offline output is serialized disk evidence, not proof of final state after Construction Script, Lua/C++, or runtime changes.
 - Cooked, unversioned, damaged, or heavily customized packages may parse only partially.
 - Material, Niagara, AnimMontage, and other non-Blueprint assets are currently for inspection, comparison, and reference analysis—not writes.
-- The supported target is UE4.27 Win64; compatibility with other engine versions is not claimed.
+- The supported target is UE4.26/4.27 Win64; compatibility with other engine versions is not claimed.
 
 ## 🤝 Development and license
 

@@ -2,14 +2,14 @@
 
 - [ ] `npm run check`, Codex plugin validation, and Skill validation pass.
 - [ ] A stdio round trip enumerates fifteen MCP tools and verifies schemas, annotations, text, and `structuredContent`.
-- [ ] Native Editor viewport capture returns real PNG image content; camera movement, zoom, orbit, framing, restoration, and error boundaries pass in UE4.27 without modifying asset packages.
+- [ ] Native Editor viewport capture returns real PNG image content; camera movement, zoom, orbit, framing, restoration, and error boundaries pass in UE4.26/4.27 without modifying asset packages.
 - [ ] Layered asset inspection verifies generic assets, Blueprint/UMG/AnimBlueprint, AnimMontage, Material/Material Instance, and Niagara System fixtures in Editor mode.
 - [ ] Bundled offline inspection, comparison, and bounded referencer search work without an Editor or any separately installed skill.
 - [ ] Automated tests cover session ambiguity, timeout, cancellation, `requestId` recovery, and partial-failure lists.
 - [ ] Protocol `2.0.0` validate/verify jobs, global structure hashes, package roles, component ranges/assertions, source-control semantics, and session heartbeats have automated coverage.
 - [ ] The 40-component Niagara clone-range performance E2E reports all six write phases and stays within its configured regression budget.
 - [ ] Clone-range validate with inherited Third Blueprints and a ResourceMap-like class referencer completes without loading the reference-only package and reports timing, role, and referencer statistics.
-- [ ] The UE4.27 Win64 plugin build and Automation tests pass.
+- [ ] The UE4.26/4.27 Win64 plugin build and Automation tests pass.
 - [ ] Setup covers first/repeat install, Marketplace preservation, broken CLI, Editor occupancy, and managed boundaries.
 - [ ] Both release archives install from empty directories, four versions agree, and SHA-256 checks pass.
 - [ ] Release surfaces contain no legacy identity, dependency, environment variable, standalone CLI, or custom Commandlet.

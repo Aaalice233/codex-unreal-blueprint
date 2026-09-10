@@ -154,7 +154,7 @@ export const toolSchemas = {
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
 export const toolDescriptions: Record<ToolName, string> = {
-  unreal_status: "Discover or select the exact UE4.27 Editor and return session, PIE, source-control, dirty-package, and queue status.",
+  unreal_status: "Discover or select the exact UE4.26/4.27 Editor and return session, PIE, source-control, dirty-package, and queue status.",
   unreal_doctor: "Check the UE plugin, protocol, project configuration, port, permissions, and build environment.",
   unreal_viewport_list: "List native 3D Editor viewport IDs, visibility, owning assets when identifiable, dimensions, and camera state. Excludes UMG Designer, graphs, and PIE.",
   unreal_viewport_capture: "Capture actual pixels from an explicit visible 3D Editor viewport to a new absolute PNG path outside Content directories; returns the image inline.",

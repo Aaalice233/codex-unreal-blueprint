@@ -6,6 +6,7 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## [Unreleased]
 
+- Added UE4.26 alongside UE4.27 with separate Win64 build outputs and engine/project version checks. Offline parsing honors the recorded 4.26/4.27 package version. / 新增 UE4.26 支持，保留 UE4.27；构建产物按引擎隔离，安装前校验项目版本，离线解析按 Package 记录的 4.26/4.27 版本执行。
 - Added native 3D Editor viewport discovery, PNG capture with inline MCP images, and journaled camera pan/orbit/zoom/framing with explicit pose restoration. / 新增原生 3D Editor 视口发现、PNG 截图及 MCP 内联图片，并支持带请求追踪的镜头平移、旋转、缩放、取景和显式恢复。
 - Restored journal failures by stable protocol error codes across display-name changes, while retaining explicit rejection of unknown codes. / 请求日志按稳定错误码恢复失败记录，兼容显示名称变化，并明确拒绝未知错误码。
 

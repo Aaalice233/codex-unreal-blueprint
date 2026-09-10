@@ -32,6 +32,27 @@ beforeAll(() => {
 afterAll(() => rmSync(sandbox, { recursive: true, force: true }));
 
 describe("PowerShell development workflow", () => {
+  it.each(["4.26", "4.27"])("uses isolated build output for UE %s", (version) => {
+    const engine = `${sandbox}/UE_${version}`;
+    const project = `${sandbox}/Fixture-${version}.uproject`;
+    mkdirSync(`${engine}/Engine/Build`, { recursive: true });
+    writeFileSync(`${engine}/Engine/Build/Build.version`, JSON.stringify({ MajorVersion: 4, MinorVersion: Number(version.split(".")[1]) }));
+    writeFileSync(project, JSON.stringify({ EngineAssociation: version }));
+    const result = runPowerShell(setupScript, ["-Config", configPath, "-EngineRoot", engine, "-UProject", project, "-DryRun"]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`artifacts/plugin-build-${version}`);
+    expect(result.stdout).toContain(`UE_${version}/Engine/Binaries/DotNET/AutomationTool.exe`);
+  });
+
+  it("rejects an engine/project mismatch before installing anything", () => {
+    const project = `${sandbox}/Mismatch.uproject`;
+    writeFileSync(project, JSON.stringify({ EngineAssociation: "4.26" }));
+    const result = runPowerShell(setupScript, ["-Config", configPath, "-EngineRoot", `${sandbox}/UE_4.27`, "-UProject", project, "-DryRun"]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Unreal version mismatch");
+    expect(result.stdout).not.toContain("npm run check");
+  });
+
   it("plans a Codex Marketplace and UE managed install without writes", () => {
     const result = runPowerShell(setupScript, ["-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
     expect(result.status, result.stderr).toBe(0);
@@ -47,7 +68,7 @@ describe("PowerShell development workflow", () => {
     const result = runPowerShell(checkScript, ["-Config", configPath, "-DryRun", "-SkipUnrealBuild"]);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("DRY-RUN: npm run check");
-    expect(result.stdout).not.toContain("RunUAT.bat");
+    expect(result.stdout).not.toContain("AutomationTool.exe");
   });
 
   it("updates only the Codex plugin without touching a running Unreal Editor", () => {
@@ -55,7 +76,7 @@ describe("PowerShell development workflow", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("npm run check");
     expect(result.stdout).toContain("plugin add codex-unreal-blueprint@personal");
-    expect(result.stdout).not.toContain("RunUAT.bat");
+    expect(result.stdout).not.toContain("AutomationTool.exe");
     expect(result.stdout).not.toContain("Plugins/CodexUnrealBlueprint");
     expect(result.stdout).toContain("Unreal Editor 无需重启");
   });
@@ -75,7 +96,7 @@ describe("PowerShell development workflow", () => {
     expect(source).toContain('@("node", "npm", "dotnet")');
     expect(source).toContain('Assert-Prerequisites $settings (-not $CodexOnly)');
     expect(source).toContain('.NET SDK 必须 >= 8.0');
-    expect(source.indexOf('Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat"'))
+    expect(source.indexOf('Invoke-Checked "$($settings.engineRoot)/Engine/Binaries/DotNET/AutomationTool.exe"'))
       .toBeLessThan(source.indexOf('Get-SourceFiles $packageRoot @("Binaries")'));
     for (const forbidden of ["reset --hard", "git clean", "git stash", "push --force"]) expect(source).not.toContain(forbidden);
   });

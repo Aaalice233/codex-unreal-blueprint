@@ -1,9 +1,9 @@
 ---
 name: unreal-blueprint
-description: Inspect UE4.27 assets online or offline and safely automate supported Blueprint writes. Use for arbitrary .uasset/.umap evidence, dependencies, referencers, comparisons, Blueprint graphs/components, UMG, AnimBlueprint, AnimMontage, Material, Material Instance, Niagara, structs, enums, interfaces, and Blueprint libraries.
+description: Inspect UE4.26/4.27 assets online or offline and safely automate supported Blueprint writes. Use for arbitrary .uasset/.umap evidence, dependencies, referencers, comparisons, Blueprint graphs/components, UMG, AnimBlueprint, AnimMontage, Material, Material Instance, Niagara, structs, enums, interfaces, and Blueprint libraries.
 license: MIT
 metadata:
-  compatibility: Requires Windows, PowerShell 7, and .NET 8 for offline inspection; Editor-backed inspection and writes require UE4.27 with CodexUnrealBlueprint enabled.
+  compatibility: Requires Windows, PowerShell 7, and .NET 8 for offline inspection; Editor-backed inspection and writes require UE4.26/4.27 with CodexUnrealBlueprint enabled.
 ---
 
 # Unreal assets and Blueprint automation
@@ -20,7 +20,7 @@ The Editor plugin cancels only native `SCSVImportOptions` dialogs whose single d
 
 When the tools are unavailable, the protocol or plugin version is stale, or the user asks to install/update this package:
 
-1. Work from the `codex-unreal-blueprint` source checkout that contains `scripts/setup.ps1`. Require Windows, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, UE4.27, and a working Codex CLI.
+1. Work from the `codex-unreal-blueprint` source checkout that contains `scripts/setup.ps1`. Require Windows, PowerShell 7, Node.js 22.19+, .NET SDK 8+, Visual Studio C++ tools, UE4.26/4.27, and a working Codex CLI.
 2. Determine whether the update changes the UE plugin or only the Codex Skill/MCP/offline parser. For a full installation, check whether the target `.uproject` is open in Unreal Editor. Do not terminate the Editor or discard unsaved work automatically; ask the user to close that Editor before installation. The installer intentionally refuses to overwrite a loaded UE plugin.
 3. From the repository root, run:
 
@@ -31,7 +31,7 @@ When the tools are unavailable, the protocol or plugin version is stale, or the 
    ```
 
    Add `-CodexExecutable C:/path/to/codex.exe` only when automatic Codex CLI discovery fails. Use `-Scope engine` only when the user explicitly wants an Engine-wide UE plugin instead of the default project installation. When the installed UE plugin is already current and the update changes only the Skill, MCP server, or bundled offline parser, add `-CodexOnly`; this runs checks and updates the managed Codex plugin while leaving UE files and the running Editor untouched.
-4. Let the script run the applicable checks, synchronize managed files, and register the personal Marketplace entry. A full run also builds and installs the UE4.27 Win64 plugin. Do not replace this with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
+4. Let the script run the applicable checks, synchronize managed files, and register the personal Marketplace entry. A full run builds and installs the Win64 plugin using the selected engine. UE4.26 projects require their matching `-EngineRoot` (for example `E:/UE_4.26`). Setup validates numeric `EngineAssociation` against `Build.version` and isolates build outputs by engine version; never install a 4.27 DLL into 4.26 or the reverse. Do not replace setup with manual partial copies. Preserve and report any prerequisite, unmanaged-file, build, validation, or registration failure.
 5. After a full installation, restart Unreal Editor and create a new Codex task. After `-CodexOnly`, keep the Editor running and only create a new Codex task so the updated Skill and MCP tools are loaded. Re-run the applicable command for later updates; no separate asset-inspection skill is needed.
 
 Verify both paths after installation:

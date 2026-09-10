@@ -242,7 +242,7 @@ export async function selectSession(query: SessionQuery = {}, options: Discovery
     const target = query.uproject === undefined ? "the requested project" : query.uproject;
     throw new UnrealBlueprintError(
       ERROR_CODES.SESSION_NOT_FOUND,
-      `No running UE4.27 Editor session was found for ${target}. Open the project with CodexUnrealBlueprint enabled.`,
+      `No running UE4.26/4.27 Editor session was found for ${target}. Open the project with CodexUnrealBlueprint enabled.`,
       { retryable: true }
     );
   }

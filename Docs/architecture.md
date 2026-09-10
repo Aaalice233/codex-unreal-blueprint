@@ -5,7 +5,7 @@ Codex task
   ├─ skills/unreal-blueprint/SKILL.md
   └─ dist/mcp/index.js (stdio)
           ├─ online: src/client (TCP JSON-RPC 2.0)
-          │       └─ CodexUnrealBlueprint UE4.27 Editor plugin
+          │       └─ CodexUnrealBlueprint UE4.26/4.27 Editor plugin
           │              ├─ layered asset inspection
           │              ├─ Core / Operation Registry
           │              ├─ Transport and Editor status

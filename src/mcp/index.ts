@@ -8,7 +8,7 @@ import { successfulToolResult } from "./results.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: "codex-unreal-blueprint", version: "1.0.0" }, {
-    instructions: "Connects Codex to a local UE4.27 Editor. Select an exact Editor session when discovery is ambiguous. Every write requires a unique requestId and uncertain writes must be queried, never replayed."
+    instructions: "Connects Codex to a local UE4.26/4.27 Editor. Select an exact Editor session when discovery is ambiguous. Every write requires a unique requestId and uncertain writes must be queried, never replayed."
   });
   for (const name of TOOL_NAMES) {
     server.registerTool(name, {

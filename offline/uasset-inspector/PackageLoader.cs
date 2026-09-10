@@ -8,6 +8,7 @@ static partial class PackageLoader
     private static readonly EngineVersion[] Versions =
     [
         EngineVersion.VER_UE4_27,
+        EngineVersion.VER_UE4_26,
         EngineVersion.VER_UE5_0,
         EngineVersion.VER_UE5_1,
         EngineVersion.VER_UE5_2,
@@ -22,12 +23,21 @@ static partial class PackageLoader
             try
             {
                 var asset = new UAsset(input, version);
+                // Older packages can deserialize under 4.27 despite version-specific property layouts.
+                // Reparse using the package header so successful fallback is not reported as its saved version.
+                var recorded = asset.RecordedEngineVersion;
+                var actualVersion = version;
+                if (recorded.Major == 4 && recorded.Minor is 26 or 27)
+                {
+                    actualVersion = recorded.Minor == 26 ? EngineVersion.VER_UE4_26 : EngineVersion.VER_UE4_27;
+                    if (actualVersion != version) { asset = new UAsset(input, actualVersion); }
+                }
                 var rawJson = asset.SerializeJson(true);
                 return new ParsedPackage(
                     input,
                     JObject.Parse(rawJson),
                     rawJson,
-                    version.ToString(),
+                    actualVersion.ToString(),
                     errors
                 );
             }

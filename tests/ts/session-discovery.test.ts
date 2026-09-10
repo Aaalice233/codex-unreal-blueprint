@@ -42,6 +42,19 @@ async function writeSession(directory: string, id: string, overrides: Record<str
   }), "utf8");
 }
 
+it("selects the exact project when UE4.26 and UE4.27 Editors coexist", async () => {
+  const directory = await fixture();
+  await writeSession(directory, "ue427");
+  await writeSession(directory, "ue426", {
+    uproject: "E:/PixelGreenLand2/LuaSocial.uproject", engineVersion: "4.26.2",
+    executablePath: "E:/UE_4.26/Engine/Binaries/Win64/UE4Editor.exe"
+  });
+  const options = { sessionsDirectory: directory, isProcessAlive: () => true, now: () => Date.parse("2026-01-02T00:00:01.000Z") };
+  await expect(selectSession({ uproject: "E:/PixelGreenLand2/LuaSocial.uproject" }, options)).resolves.toMatchObject({ editorSessionId: "ue426", engineVersion: "4.26.2" });
+  await expect(selectSession({ uproject: "E:/Master/LuaSocial.uproject" }, options)).resolves.toMatchObject({ editorSessionId: "ue427", engineVersion: "4.27.2" });
+  await expect(selectSession({}, options)).rejects.toMatchObject({ code: "SESSION_AMBIGUOUS" });
+});
+
 describe("Editor session discovery", () => {
   it("matches an exact uproject path with Windows case and slash normalization", async () => {
     const directory = await fixture();

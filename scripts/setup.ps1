@@ -20,6 +20,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $script:Repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..")).Replace("\", "/").TrimEnd("/")
 $script:ManagedManifest = ".codex-unreal-blueprint.manifest.json"
+. "$PSScriptRoot/unreal-version.ps1"
 
 function Normalize-Path([string]$Path) { [System.IO.Path]::GetFullPath($Path).Replace("\", "/").TrimEnd("/") }
 function Write-Step([string]$Text) { Write-Host "[codex-unreal-blueprint setup] $Text" }
@@ -98,7 +99,7 @@ function Assert-Prerequisites($Settings, [bool]$RequireUnreal) {
             $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
             if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($vs -join ""))) { throw "未找到 Visual Studio C++ 工具链。" }
         }
-        foreach ($path in @($Settings.uproject, "$($Settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat", "$($Settings.engineRoot)/Engine/Binaries/Win64/UE4Editor.exe")) {
+        foreach ($path in @($Settings.uproject, "$($Settings.engineRoot)/Engine/Binaries/DotNET/AutomationTool.exe", "$($Settings.engineRoot)/Engine/Binaries/Win64/UE4Editor.exe")) {
             if (-not $DryRun -and -not (Test-Path -LiteralPath $path)) { throw "缺少前置路径：$path" }
         }
     }
@@ -215,19 +216,21 @@ function Update-PersonalMarketplace($Settings) {
 
 $settings = Get-Settings
 Assert-Prerequisites $settings (-not $CodexOnly)
+if (-not $CodexOnly) { $unrealVersion = Get-SupportedUnrealVersion $settings.engineRoot $settings.uproject -AllowMissing:$DryRun }
 Invoke-Checked "npm" @("run", "check")
 if (-not $CodexOnly) {
     if (-not $SkipUnrealBuild) {
-        $packageRoot = "$script:Repo/artifacts/plugin-build"
+        $packageRoot = "$script:Repo/artifacts/plugin-build-$unrealVersion"
         if (-not $DryRun -and (Test-Path -LiteralPath $packageRoot)) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
-        Invoke-Checked "$($settings.engineRoot)/Engine/Build/BatchFiles/RunUAT.bat" @("BuildPlugin", "-Plugin=$script:Repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$packageRoot", "-TargetPlatforms=Win64", "-Rocket")
+        Invoke-Checked "$($settings.engineRoot)/Engine/Binaries/DotNET/AutomationTool.exe" @("BuildPlugin", "-Plugin=$script:Repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$packageRoot", "-TargetPlatforms=Win64", "-Rocket")
     }
     Assert-EditorClosed $settings
     $ueFiles = Get-SourceFiles "$script:Repo/unreal/CodexUnrealBlueprint" @("Config", "Source", "CodexUnrealBlueprint.uplugin", "README.md")
     if (-not $SkipUnrealBuild) {
         # Install the exact DLLs produced by the validated BuildPlugin run. Copying only source would leave an
         # older binary active until the project happened to rebuild the plugin itself.
-        $ueFiles += Get-SourceFiles $packageRoot @("Binaries")
+        if ($DryRun) { Write-Step "DRY-RUN: 安装本次构建产物 $packageRoot/Binaries" }
+        else { $ueFiles += Get-SourceFiles $packageRoot @("Binaries") }
         $ueFiles = @($ueFiles | Sort-Object path -Unique)
     }
     elseif (Test-Path -LiteralPath "$($settings.uePluginTarget)/Binaries" -PathType Container) {

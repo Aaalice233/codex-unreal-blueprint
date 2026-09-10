@@ -6,7 +6,7 @@
 
 **简体中文** · [繁體中文](README.zh-TW.md) · [English](README.en.md)
 
-面向 Codex 的 UE4.27 Win64 本地插件：既能在 Editor 在线时安全自动化 Blueprint，也能在 Editor 关闭时直接检查 `.uasset` 和 `.umap`。Skill、MCP server、UE Editor plugin 与离线解析器一次安装，无需额外安装 `inspect-unreal-uassets`。
+面向 Codex 的 UE4.26/4.27 Win64 本地插件：既能在 Editor 在线时安全自动化 Blueprint，也能在 Editor 关闭时直接检查 `.uasset` 和 `.umap`。Skill、MCP server、UE Editor plugin 与离线解析器一次安装，无需额外安装 `inspect-unreal-uassets`。
 
 ## ✨ 主要能力
 
@@ -84,7 +84,7 @@
 
 ## 🚀 安装
 
-要求：Windows、UE4.27、PowerShell 7、Node.js 22.19+、.NET SDK 8+、Visual Studio C++ 工具链，以及 Codex Desktop/CLI。
+要求：Windows、UE4.26/4.27、PowerShell 7、Node.js 22.19+、.NET SDK 8+、Visual Studio C++ 工具链，以及 Codex Desktop/CLI。
 
 首次安装或 UE plugin 有更新时，先关闭目标 Editor，再运行：
 
@@ -95,7 +95,9 @@ pwsh ./scripts/setup.ps1 `
   -EngineRoot E:/UE_4.27
 ```
 
-脚本会运行检查、构建 UE4.27 Win64 plugin、同步受管文件，并安装个人 Codex plugin。完成后重启 Editor，并新建 Codex task。
+脚本会运行检查、按所选引擎构建 Win64 plugin、同步受管文件，并安装个人 Codex plugin。完成后重启 Editor，并新建 Codex task。
+
+UE4.26 项目使用对应的 `-UProject` 和 `-EngineRoot E:/UE_4.26`。安装器校验 `Build.version` 与项目的数字 `EngineAssociation`，4.26、4.27 构建分别保存在 `artifacts/plugin-build-4.26` 和 `artifacts/plugin-build-4.27`；源码共用，DLL 必须各自编译，不能跨引擎复制。
 
 如果 UE plugin 已是最新版，本次只更新 Skill、MCP server 或离线解析器，可以保持 Editor 开启：
 
@@ -137,7 +139,7 @@ pwsh ./scripts/setup.ps1 -CodexOnly
 - 离线结果是磁盘序列化证据，不能证明 Construction Script、Lua/C++ 或运行时修改后的最终状态。
 - Cooked、unversioned、损坏或高度自定义序列化的 Package 可能只能部分解析。
 - Material、Niagara、AnimMontage 和其他非 Blueprint 资产当前以检查、比较和引用分析为主，不执行写入。
-- 支持目标为 UE4.27 Win64；其他引擎版本尚未声明兼容。
+- 支持目标为 UE4.26/4.27 Win64；其他引擎版本尚未声明兼容。
 
 ## 🤝 开发与许可
 

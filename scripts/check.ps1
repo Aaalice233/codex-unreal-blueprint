@@ -11,6 +11,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+. "$PSScriptRoot/unreal-version.ps1"
 
 function Invoke-Checked([string]$FilePath, [string[]]$Arguments) {
     if ($DryRun) { Write-Host "[codex-unreal-blueprint] DRY-RUN: $FilePath $($Arguments -join ' ')"; return }
@@ -30,10 +31,11 @@ function Get-Value([string]$Name, $Fallback) {
 function Invoke-UnrealBuildAndTests {
     $engine = Get-Value "engineRoot" $(if ($EngineRoot) { $EngineRoot } else { "E:/UE_4.27" })
     $project = Get-Value "uproject" $(if ($UProject) { $UProject } else { "E:/Master/LuaSocial.uproject" })
+    $unrealVersion = Get-SupportedUnrealVersion $engine $project -AllowMissing:$DryRun
     if (-not $SkipUnrealBuild) {
-        $target = Join-Path $repo "artifacts/plugin-build"
+        $target = Join-Path $repo "artifacts/plugin-build-$unrealVersion"
         if (-not $DryRun -and (Test-Path -LiteralPath $target)) { Remove-Item -LiteralPath $target -Recurse -Force }
-        Invoke-Checked "$engine/Engine/Build/BatchFiles/RunUAT.bat" @("BuildPlugin", "-Plugin=$repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$target", "-TargetPlatforms=Win64", "-Rocket")
+        Invoke-Checked "$engine/Engine/Binaries/DotNET/AutomationTool.exe" @("BuildPlugin", "-Plugin=$repo/unreal/CodexUnrealBlueprint/CodexUnrealBlueprint.uplugin", "-Package=$target", "-TargetPlatforms=Win64", "-Rocket")
     }
     if ($RunUnrealTests -or [bool](Get-Value "runUeTests" $false)) {
         $filter = Get-Value "ueTestFilter" "CodexUnrealBlueprint"

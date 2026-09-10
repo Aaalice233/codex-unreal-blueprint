@@ -389,6 +389,7 @@ bool FCodexPipelineCancellationBoundaryTest::RunTest(const FString& Parameters)
     Progress.Report = [](int32 Completed, int32 Total, const FString& Message, const FString& AssetPath) {};
     Progress.IsCancellationRequested = [&bCancellationRequested]() { return bCancellationRequested; };
     Progress.Heartbeat = []() {};
+    AddExpectedError(TEXT("phase=compile code=write.cancelled"), EAutomationExpectedErrorFlags::Contains, 1);
     FWritePipelineResult Result = FWritePipeline::Execute(Request, Progress);
     TestFalse(TEXT("cancelled write fails explicitly"), Result.bSucceeded);
     TestEqual(TEXT("cancellation has stable code"), Result.Error.Code, FString(TEXT("write.cancelled")));
