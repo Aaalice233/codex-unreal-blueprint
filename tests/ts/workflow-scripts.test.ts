@@ -42,6 +42,13 @@ describe("PowerShell development workflow", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain(`artifacts/plugin-build-${version}`);
     expect(result.stdout).toContain(`UE_${version}/Engine/Binaries/DotNET/AutomationTool.exe`);
+    const check = runPowerShell(checkScript, ["-Config", configPath, "-EngineRoot", engine, "-UProject", project, "-DryRun", "-RunUnrealTests"]);
+    expect(check.status, check.stderr).toBe(0);
+    expect(check.stdout).toContain(`plugin-build-${version}`);
+    expect(check.stdout).toContain(`UE_${version}/Engine/Binaries/Win64/UE4Editor.exe`);
+    expect(check.stdout).toContain(project);
+    expect(check.stdout).not.toContain("-unattended");
+    expect(check.stdout).not.toContain("-NullRHI");
   });
 
   it("rejects an engine/project mismatch before installing anything", () => {
